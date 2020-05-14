@@ -18,7 +18,7 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * 2020-04-27 TC moOde 6.5.1
+ * 2020-MM-DD TC moOde 6.6.0
  *
  * This is the @chris-rudmin rewrite of the library group/filter routines
  * including modifications to all dependant functions and event handlers.
@@ -159,7 +159,8 @@ function groupLib(fullLib) {
 			genre: findAlbumProp(albumTracks, 'genre'),
 			all_genres: Object.keys(albumTracks.reduce(reduceGenres, {})),
 			artist: albumArtist || artist,
-			imgurl: '/imagesw/thmcache/' + encodeURIComponent(md5) + '.jpg'
+			imgurl: '/imagesw/thmcache/' + encodeURIComponent(md5) + '.jpg',
+            encoded_at: findAlbumProp(albumTracks, 'encoded_at')
 		};
 	});
 
@@ -532,34 +533,73 @@ var renderAlbums = function() {
         filteredAlbums[i].year ? tagViewYear = '(' + filteredAlbums[i].year + ')' : tagViewYear = '';
         filteredAlbumCovers[i].year ? albumViewYear = '(' + filteredAlbumCovers[i].year + ')' : albumViewYear = '';
 
+        // Tag view
+        var encodedAt = filteredAlbums[i].encoded_at.split(' ');
+        if (encodedAt[0].indexOf('/') === -1) {
+            var tagViewBits = 16;
+            var tagViewRate = parseInt(encodedAt[0]);
+        }
+        else {
+            var tagViewBits = parseInt(encodedAt[0].split('/')[0]);
+            var tagViewRate = parseInt(encodedAt[0].split('/')[1]);
+        }
+        var tagViewHdDiv = tagViewBits > 16 || tagViewRate > 44 ? '<div class="encoded-at-hdonly">HD</div>' : '';
+
+        // Album view
+        var encodedAt = filteredAlbumCovers[i].encoded_at.split(' ');
+        if (encodedAt[0].indexOf('/') === -1) {
+            var albumViewBits = 16;
+            var albumViewRate = parseInt(encodedAt[0]);
+        }
+        else {
+            var albumViewBits = parseInt(encodedAt[0].split('/')[0]);
+            var albumViewRate = parseInt(encodedAt[0].split('/')[1]);
+        }
+        var albumViewHdDiv = albumViewBits > 16 || albumViewRate > 44 ? '<div class="encoded-at-hdonly">HD</div>' : '';
+
 		if (SESSION.json['library_tagview_covers'] == 'Yes') {
 			output += '<li class="lib-entry">'
-             + '<img class="lazy-tagview" data-original="' + filteredAlbums[i].imgurl + '">'
-             + '<div class="tag-cover-text"><span class="album-name-art">' + filteredAlbums[i].album
-             + '</span><span class="artist-name-art">' + filteredAlbums[i].artist + '</span><span class="album-year">' + tagViewYear + '</span></div></li>'		}
+                + '<img class="lazy-tagview" data-original="' + filteredAlbums[i].imgurl + '">'
+                + '<div class="tag-cover-text"><span class="album-name-art">' + filteredAlbums[i].album + '</span>'
+                + '<span class="artist-name-art">' + filteredAlbums[i].artist + '</span>'
+                + '<span class="album-year">' + tagViewYear + '</span></div>'
+                //+ '<div class="encoded-at">' + filteredAlbums[i].encoded_at + '</div>'
+                //+ tagViewHdDiv
+                + '</li>';
+        }
 		else {
-			output += '<li class="lib-entry"><span class="album-name">' + filteredAlbums[i].album
-             + '</span><span class="artist-name">' + filteredAlbums[i].artist + tagViewYear + '</span></li>'
+			output += '<li class="lib-entry no-tagview-covers">'
+                + '<span class="album-name">' + filteredAlbums[i].album
+                + '</span><span class="artist-name-art">' + filteredAlbums[i].artist + '</span><span class="album-year">' + tagViewYear + '</span></li>'
         }
 
 		output2 += '<li class="lib-entry">'
             + '<img class="lazy-albumview" data-original="' + filteredAlbumCovers[i].imgurl + '">'
             + '<div class="cover-menu" data-toggle="context" data-target="#context-menu-lib-all"></div>'
             + '<span class="album-name">' + filteredAlbumCovers[i].album + '</span>'
-            + '<div class="artyear"><span class="artist-name">' + filteredAlbumCovers[i].artist + '</span><span class="album-year">' + albumViewYear + '</span></div></li>';
+            + '<div class="artyear"><span class="artist-name">' + filteredAlbumCovers[i].artist + '</span><span class="album-year">' + albumViewYear + '</span></div>'
+            + '<div class="encoded-at">' + filteredAlbumCovers[i].encoded_at + '</div>'
+            + albumViewHdDiv
+            + '</li>';
 	}
 
     // Output the lists
 	$('#albumsList').html(output);
 	$('#albumcovers').html(output2);
+
 	// If only 1 album automatically highlight and display tracks
 	if (filteredAlbums.length == 1) {
 		    $('#albumsList li').addClass('active');
 			LIB.albumClicked = true;
 	}
+
+    // Set ellipsis text
 	if (SESSION.json["library_ellipsis_limited_text"] == "Yes") {
 		$('#library-panel').addClass('limited');
 	}
+
+    // Set encoded at
+    setLibraryEncodedAt(SESSION.json['library_encoded_at']);
 
 	// Headers clicked
 	if (UI.libPos[0] == -2) {
@@ -627,15 +667,15 @@ var renderSongs = function(albumPos) {
 			var composer = filteredSongs[i].composer == 'Composer tag missing' ? '</span>' : '<br><span class="songcomposer">' + filteredSongs[i].composer + '</span></span>';
 			var highlight = filteredSongs[i].title == MPD.json['title'] ? ' lib-track-highlight' : '';
 
-	    output += discDiv
-			+ '<li id="lib-song-' + (i + 1) + '" class="clearfix">'
-			+ '<div class="lib-entry-song"><span class="songtrack' + highlight + '">' + filteredSongs[i].tracknum + '</span>'
-			+ '<span class="songname">' + filteredSongs[i].title + '</span>'
-			+ '<span class="songtime"> ' + filteredSongs[i].time_mmss + '</span>'
-			+ '<span class="songartist"> ' + filteredSongs[i].artist + composer
-			+ '<span class="songyear"> ' + songyear + '</span></div>'
-			+ '<div class="lib-action"><a class="btn" href="#notarget" data-toggle="context" data-target="#context-menu-lib-item"><i class="fas fa-ellipsis-h"></i></a></div>'
-			+ '</li>';
+            output += discDiv
+    			+ '<li id="lib-song-' + (i + 1) + '" class="clearfix">'
+    			+ '<div class="lib-entry-song"><span class="songtrack' + highlight + '">' + filteredSongs[i].tracknum + '</span>'
+    			+ '<span class="songname">' + filteredSongs[i].title + '</span>'
+    			+ '<span class="songtime"> ' + filteredSongs[i].time_mmss + '</span>'
+    			+ '<span class="songartist"> ' + filteredSongs[i].artist + composer
+    			+ '<span class="songyear"> ' + songyear + '</span></div>'
+    			+ '<div class="lib-action"><a class="btn" href="#notarget" data-toggle="context" data-target="#context-menu-lib-item"><i class="fas fa-ellipsis-h"></i></a></div>'
+    			+ '</li>';
 
 			LIB.totalTime += parseSongTime(filteredSongs[i].time);
 		}
@@ -668,7 +708,6 @@ var renderSongs = function(albumPos) {
 		else {
 			artist = filteredSongs[0].album_artist || filteredSongs[0].artist;
 		}
-
 		$('#lib-artistname').html(artist);
 		$('#lib-albumyear').html(filteredSongs[0].year);
 		$('#lib-numtracks').html(filteredSongs.length + ((filteredSongs.length == 1) ? ' track, ' : ' tracks, ') + formatTotalTime(LIB.totalTime));
@@ -701,7 +740,6 @@ $('#genreheader, #menu-header').on('click', function(e) { // reset all tags, etc
 		showSearchResetLib = false;
 		if (GLOBAL.musicScope == 'recent' && !GLOBAL.searchLib) { // if recently added and not search reset to all
 			GLOBAL.musicScope = 'all';
-			//LIB.recentlyAddedClicked = false;
 		}
 		GLOBAL.searchLib = '';
 		if (currentView == 'album') {
@@ -726,7 +764,6 @@ $('#artistheader').on('click', '.lib-heading', function(e) {
 	LIB.artistClicked = false;
 	LIB.filters.artists.length = 0;
 	LIB.filters.albums.length = 0;
-    LIB.recentlyAddedClicked = false;
 	UI.libPos.fill(-2);
 	storeLibPos(UI.libPos);
 	clickedLibItem(e, undefined, LIB.filters.artists, renderArtists);
@@ -737,25 +774,10 @@ $('#artistheader').on('click', '.lib-heading', function(e) {
 
 // Click albums or album covers header
 $('#albumheader').on('click', '.lib-heading', function(e) {
-	//console.log($(this).parent().attr('id'));
-	//LIB.artistClicked = false;
-    /* DEPRECATED
-	if ($(this).parent().attr('id') == 'albumcoverheader') {
-		$('#albumcovers .lib-entry').removeClass('active');
-		$('#bottom-row').css('display', '');
-		$('#lib-albumcover').css('height', '100%');
-		LIB.filters.artists.length = 0;
-		LIB.filters.albums.length = 0;
-        LIB.recentlyAddedClicked = false;
-		UI.libPos.fill(-2);
-		clickedLibItem(e, undefined, LIB.filters.artists, renderArtists);
-	}
-	else {*/
-		LIB.filters.albums.length = 0;
-        LIB.recentlyAddedClicked = false;
-		UI.libPos.fill(-2);
-		clickedLibItem(e, undefined, LIB.filters.albums, renderAlbums);
-	//}
+	LIB.filters.albums.length = 0;
+    UI.libPos[0] = -2;
+    UI.libPos[1] = -2;
+	clickedLibItem(e, undefined, LIB.filters.albums, renderAlbums);
 
 	storeLibPos(UI.libPos);
 	$("#searchResetLib").hide();

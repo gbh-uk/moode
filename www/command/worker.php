@@ -20,7 +20,7 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * 2020-MM-DD TC moOde 6.5.2
+ * 2020-05-03 TC moOde 6.5.2
  *
  */
 
@@ -463,19 +463,6 @@ else {
 }
 
 // Start Spotify renderer
-// NOTE: moOde ships with an armv7l-only version of librespot that will segfault on armv6l.
-$bitmask = (int)$_SESSION['feat_bitmask'];
-if (trim(sysCmd('librespot 2>&1')[0]) == 'Segmentation fault') {
-	if (FEAT_SPOTIFY & $bitmask) {
-		playerSession('write', 'feat_bitmask', $_SESSION['feat_bitmask'] - FEAT_SPOTIFY);
-		workerLog('worker: Spotify renderer (feature disabled, not supported on armv6l)');
-	}
-}
-else {
-	if (!(FEAT_SPOTIFY & $bitmask)) {
-		playerSession('write', 'feat_bitmask', $_SESSION['feat_bitmask'] + FEAT_SPOTIFY);
-	}
-}
 if ($_SESSION['feat_bitmask'] & FEAT_SPOTIFY) {
 	workerLog('worker: Spotify renderer (available)');
 	if (isset($_SESSION['spotifysvc']) && $_SESSION['spotifysvc'] == 1) {

@@ -18,7 +18,7 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * 2020-04-27 TC moOde 6.5.1
+ * 2020-MM-DD TC moOde 6.6.0
  *
  */
 jQuery(document).ready(function($) { 'use strict';
@@ -49,8 +49,11 @@ jQuery(document).ready(function($) { 'use strict';
             notify('viewport', window.innerWidth + 'x' + window.innerHeight, 10000);
         }
 
-    	// load current view
+    	// Set currentView global
     	currentView = SESSION.json['current_view'];
+
+        // Set thumbnail columns
+        setLibraryThumbnailCols(SESSION.json['library_thumbnail_columns'].substring(0, 1));
 
         // Initiate loads
         loadLibrary();
@@ -1039,28 +1042,27 @@ jQuery(document).ready(function($) { 'use strict';
             if (filter.slice(filter.length - 2) == '!r') {
                 filter = filter.slice(0, filter.length - 2);
             }
-
-            LIB.filters.year = filter.split('-'); // [year 1][year 2 if present]
-            if (!(parseInt(LIB.filters.year[0]) || parseInt(LIB.filters.year[1]))) {
-                // For now do nothing for non integer (year) input
-                return false;
-            }
-
-		    LIB.recentlyAddedClicked = false;
-			LIB.filters.albums.length = 0;
-			$('#menu-header').text('Albums from ' + LIB.filters.year[0] + (LIB.filters.year[1] ? ' to ' + LIB.filters.year[1] : ''));
-			GLOBAL.searchLib = $('#menu-header').text(); // Save for #menu-header
-			$('#viewswitch span').hide();
-			UI.libPos.fill(-2);
-			filterLib();
-		    renderAlbums();
-			$('#lib-album-filter').blur();
-			$('#viewswitch').click();
-			if (currentView == 'tag' && SESSION.json['tag_view_covers'] == 'Yes') {
-				lazyLode('tag');
+            LIB.filters.year = filter.split('-').map( Number ); // [year 1][year 2 if present]
+            if (LIB.filters.year[0]) {
+			    LIB.recentlyAddedClicked = false;
+				LIB.filters.albums.length = 0;
+				$('#menu-header').text('Albums from ' + LIB.filters.year[0] + (LIB.filters.year[1] ? ' to ' + LIB.filters.year[1] : ''));
+				GLOBAL.searchLib = $('#menu-header').text(); // Save for #menu-header
+				$('#viewswitch span').hide();
+				UI.libPos.fill(-2);
+				filterLib();
+			    renderAlbums();
+				$('#lib-album-filter').blur();
+				$('#viewswitch').click();
+				if (currentView == 'tag' && SESSION.json['tag_view_covers'] == 'Yes') {
+					lazyLode('tag');
+				}
+				else if (currentView == 'album') {
+					lazyLode('album');
+				}
 			}
-			else if (currentView == 'album') {
-				lazyLode('album');
+			else {
+				LIB.filters.year = '';
 			}
 			$('#lib-album-filter').blur();
 			$('#viewswitch').click();
@@ -1259,7 +1261,6 @@ jQuery(document).ready(function($) { 'use strict';
 	// Disconnect active renderer
 	//$('.disconnect-renderer').live('click', function(e) {
     $(document).on('click', '.disconnect-renderer', function(e) {
-		$('.disconnect-renderer').css('opacity', '.5');
 		var job = $(this).data('job');
         $.post('command/moode.php?cmd=disconnect-renderer', {'job':job});
 	});

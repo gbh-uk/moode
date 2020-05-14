@@ -11,19 +11,48 @@
 
 ########################################################
 //
-// 2020-MM-DD TC moOde 6.5.2
+// 2020-MM-DD TC moOde 6.6.0
+//
+########################################################
+
+New features
+
+- NEW: Option to adjust the number of thumbnail columns
+- NEW: Option to display sample rate in Album view
+
+Updates
+
+- UPD: Use MusicBrainz date tags if present in track
+- UPD: Add X-Large font size option to Appearance
+- UPD: Style of renderer active and restart/shutdown overlays
+
+Bug fixes
+
+- FIX: Unhandled "Database locked" error in vol.sh and rotvol.sh
+- FIX: Playlist line 2 left alignment in mobile portrait
+- FIX: Wrong cover artist when album header clicked in Tag view
+- FIX: Header text for "Recently added" being set incorrectly
+
+########################################################
+//
+// 2020-05-03 TC moOde 6.5.2
 //
 ########################################################
 
 Updates
 
-- UPD: Add -q (sql query) option to moodeutl.php
-- UPD: Improve startup logic for auto play and auto-shuffle
-- UPD: Compile librespot to support both arm6 and arm7
+- UPD: Bump to miniDLNA 1.2.1+0763719 DSD support
+- UPD: Add wlan0 check/reset to watchdog
+- UPD: Add edge debounce delay to gpio-buttons
 
 Bug fixes
 
-- FIX:
+- FIX: Start up logic for auto play and auto-shuffle
+- FIX: Librespot not compiled for arm6
+- FIX: Renderer active overlays not cleared when on configs
+- FIX: Podcast streams not being handled correctly
+- FIX: No Artist line when Tagview covers option = No
+- FIX: Enter key fail in Library search when alpha
 
 ########################################################
 //
