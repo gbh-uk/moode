@@ -116,7 +116,8 @@ var GLOBAL = {
     playbarPlaylistTimer: '',
     plActionClicked: false,
     mpdMaxVolume: 0,
-    lastTimeCount: 0
+    lastTimeCount: 0,
+    editStationId: ''
 };
 
 // live timeline
@@ -173,7 +174,7 @@ function sendMpdCmd(cmd, async) {
 
 	$.ajax({
 		type: 'GET',
-		url: 'command/?cmd=' + cmd,
+		url: 'command/index.php?cmd=' + cmd,
 		async: async,
 		cache: false,
 		success: function(data) {
@@ -632,7 +633,7 @@ function renderUI() {
     	}
     	// Software or hardware volume
     	else {
-            // Volume button visability
+            // Volume button visibility
             if (UI.mobile) {
                 $('.volume-popup-btn').show();
             }
@@ -1020,15 +1021,16 @@ function mpdDbCmd(cmd, path) {
 		$.post('command/moode.php?cmd=lsinfo', {'path': ''}, function(data) {renderBrowse(data, '');}, 'json');
 	}
 	else if (cmd == 'newstation' || cmd == 'updstation') {
-		var arg = path.split('\n');
-        RADIO.json[arg[1]] = {'name': arg[0]};
-        $.post('command/moode.php?cmd=' + cmd, {'path': arg[0], 'url': arg[1]}, function() {
+        RADIO.json[path['url']] = {'name': path['display_name']};
+        $.post('command/moode.php?cmd=' + cmd, {'path': path}, function(return_msg) {
+            return_msg == 'OK' ? notify(cmd) : notify('validation_check', return_msg, 5000);
             $('#ra-refresh').click();
-        });
+        }, 'json');
 	}
 	else if (cmd == 'delstation') {
         deleteRadioStationObject(path.slice(0,path.lastIndexOf('.')).substr(6));
         $.post('command/moode.php?cmd=' + cmd, {'path': path}, function() {
+            notify('delstation');
             $('#ra-refresh').click();
         });
 	}
@@ -1535,16 +1537,16 @@ function formatTotalTime(seconds) {
     	output = '';
     }
 	else {
-	    hours = Math.floor(seconds / 3600);
-    	minutes = Math.floor(seconds / 60);
-    	minutes = (minutes < 60) ? minutes : (minutes % 60);
+	    hours = ~~(seconds / 3600); // ~~ = faster Math.floor
+    	seconds %= 3600;
+    	minutes = ~~(seconds / 60);
 
         hh = hours == 0 ? '' : (hours == 1 ? hours + ' hour' : hours + ' hours');
         mm = minutes == 0 ? '' : (minutes == 1 ? minutes + ' min' : minutes + ' mins');
 
 		if (hours > 0) {
 			if (minutes > 0) {
-				output = hh + ', ' + mm;
+				output = hh + ' ' + mm;
 			}
             else {
 				output = hh;
@@ -1554,8 +1556,11 @@ function formatTotalTime(seconds) {
 			output = mm;
 		}
     }
+    return formatNumCommas(output);
+}
 
-    return output;
+function formatNumCommas(x) {
+    return x.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
 function countdownRestart(startFrom) {
@@ -1785,22 +1790,24 @@ $('.context-menu a').click(function(e) {
 	}
 	else if ($(this).data('cmd') == 'editradiostn') {
         $.post('command/moode.php?cmd=readstationfile', {'path': UI.dbEntry[0]}, function(result) {
-            var stationName = path.slice(path.lastIndexOf('/') + 1); // Trim 'RADIO/sub_directory/'
-            stationName = stationName.slice(0, stationName.lastIndexOf('.')); // Trim .pls
-    		$('#edit-station-name').val(stationName);
-    		$('#edit-station-url').val(result['File1']);
+            var stationPlsName = path.slice(path.lastIndexOf('/') + 1); // Trim 'RADIO/sub_directory/'
+            stationPlsName = stationPlsName.slice(0, stationPlsName.lastIndexOf('.')); // Trim .pls
+            GLOBAL.editStationId = result['id']; // this is to pass to the update station routine so it can uniquely identify the row
+    		$('#edit-station-pls-name').val(stationPlsName);
+    		$('#edit-station-url').val(result['station']);
             $('#edit-logoimage').val('');
             $('#info-toggle-edit-logoimage').css('margin-left','60px');
-            $('#preview-edit-logoimage').html('<img src="../images/radio-logos/thumbs/' + stationName + '.jpg">');
+            $('#preview-edit-logoimage').html('<img src="../images/radio-logos/thumbs/' + stationPlsName + '.jpg">');
 
             $('#edit-station-tags').css('margin-top', '30px');
-            $('#edit-station-genre').val('');
-            $('#edit-station-broadcaster').val('');
-            $('#edit-station-language').val('');
-            $('#edit-station-country').val('');
-            $('#edit-station-region').val('');
-            $('#edit-station-bitrate').val('');
-            $('#edit-station-format').val('');
+            $('#edit-station-display-name').val(result['name']);
+            $('#edit-station-genre').val(result['genre']);
+            $('#edit-station-broadcaster').val(result['broadcaster']);
+            $('#edit-station-language').val(result['language']);
+            $('#edit-station-country').val(result['country']);
+            $('#edit-station-region').val(result['region']);
+            $('#edit-station-bitrate').val(result['bitrate']);
+            $('#edit-station-format').val(result['format']);
 
     		$('#editstation-modal').modal();
         }, 'json');
@@ -2318,14 +2325,14 @@ function newLogoImage(files) {
 	$('#preview-new-logoimage').html("<img src='" + imgUrl + "' />");
 	$('#info-toggle-new-logoimage').css('margin-left','60px');
     $('#new-station-tags').css('margin-top', '30px');
-	var stationName = $('#new-station-name').val();
+	var stationPlsName = $('#new-station-pls-name').val();
 	URL.revokeObjectURL(imgUrl);
 	var reader = new FileReader();
 	reader.onload = function(e) {
 		var dataURL = reader.result;
 		// strip off the header from the dataURL: 'data:[<MIME-type>][;charset=<encoding>][;base64],<data>'
 		var data = dataURL.match(/,(.*)$/)[1];
-        $.post('command/moode.php?cmd=setlogoimage', {'name': stationName, 'blob': data});
+        $.post('command/moode.php?cmd=setlogoimage', {'name': stationPlsName, 'blob': data});
 	}
 	reader.readAsDataURL(files[0]);
 }
@@ -2348,14 +2355,14 @@ function editLogoImage(files) {
 	imgUrl = (URL || webkitURL).createObjectURL(files[0]);
 	$('#preview-edit-logoimage').html("<img src='" + imgUrl + "' />");
 	$('#info-toggle-edit-logoimage').css('margin-left','60px');
-	var stationName = $('#edit-station-name').val();
+	var stationPlsName = $('#edit-station-pls-name').val();
 	URL.revokeObjectURL(imgUrl);
 	var reader = new FileReader();
 	reader.onload = function(e) {
 		var dataURL = reader.result;
 		// strip off the header from the dataURL: 'data:[<MIME-type>][;charset=<encoding>][;base64],<data>'
 		var data = dataURL.match(/,(.*)$/)[1];
-        $.post('command/moode.php?cmd=setlogoimage', {'name': stationName, 'blob': data});
+        $.post('command/moode.php?cmd=setlogoimage', {'name': stationPlsName, 'blob': data});
 	}
 	reader.readAsDataURL(files[0]);
 }
