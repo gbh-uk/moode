@@ -1,79 +1,50 @@
 <?php
-/**
- * moOde audio player (C) 2014 Tim Curtis
- * http://moodeaudio.org
- *
- * This Program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 3, or (at your option)
- * any later version.
- *
- * This Program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- *
- * 2019-05-07 TC moOde 5.2
- *
- */
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Copyright 2014 The moOde audio player project / Tim Curtis
+*/
 
-require_once dirname(__FILE__) . '/inc/playerlib.php';
+require_once __DIR__ . '/inc/alsa.php';
+require_once __DIR__ . '/inc/common.php';
+require_once __DIR__ . '/inc/session.php';
+require_once __DIR__ . '/inc/sql.php';
 
-playerSession('open', '' ,'');
-$dbh = cfgdb_connect();
-session_write_close();
+$dbh = sqlConnect();
+phpSession('open');
 
-// apply setting changes to /etc/squeezelite.conf
 if (isset($_POST['save']) && $_POST['save'] == '1') {
 	foreach ($_POST['config'] as $key => $value) {
-		if ($key == 'AUDIODEVICE') {
-			$value = $_SESSION['cardnum'];
-		}
-		cfgdb_update('cfg_sl', $dbh, $key, $value);
+		chkValue($value);
+		sqlUpdate('cfg_sl', $dbh, $key, SQLite3::escapeString($value));
 	}
-
-	// update conf file
-	submitJob('slcfgupdate', '', 'Changes saved', ($_SESSION['slsvc'] == '1' ? 'Squeezelite restarted' : ''));
+	$notify = $_SESSION['slsvc'] == '1' ?
+		array('title' => NOTIFY_TITLE_INFO, 'msg' => NAME_SQUEEZELITE . NOTIFY_MSG_SVC_RESTARTED) :
+		array('title' => '', 'msg' => '');
+	submitJob('slcfgupdate', '', $notify['title'], $notify['msg']);
 }
 
-// load settings
-$result = cfgdb_read('cfg_sl', $dbh);
-$cfg_sl = array();
+phpSession('close');
+
+$result = sqlRead('cfg_sl', $dbh);
+$cfgSL = array();
 
 foreach ($result as $row) {
-	$cfg_sl[$row['param']] = $row['value'];
+	$cfgSL[$row['param']] = $row['value'];
 }
 
-// get device names
-$dev = getDeviceNames();
+$_sl_select['renderer_name'] = $cfgSL['PLAYERNAME'];
+$_sl_select['alsa_params'] = $cfgSL['ALSAPARAMS'];
+$_sl_select['output_buffers'] = $cfgSL['OUTPUTBUFFERS'];
+$_sl_select['task_priority'] = $cfgSL['TASKPRIORITY'];
+$_sl_select['audio_codecs'] = $cfgSL['CODECS'];
+$_sl_select['other_options'] = htmlentities($cfgSL['OTHEROPTIONS']);
 
-// renderer name
-$_sl_select['renderer_name'] = $cfg_sl['PLAYERNAME'];
-
-// alsa params
-$_sl_select['alsa_params'] = $cfg_sl['ALSAPARAMS'];
-
-// output buffers
-$_sl_select['output_buffers'] = $cfg_sl['OUTPUTBUFFERS'];
-
-// task priority
-$_sl_select['task_priority'] = $cfg_sl['TASKPRIORITY'];
-
-// audio codecs
-$_sl_select['audio_codecs'] = $cfg_sl['CODECS'];
-
-// other options
-$_sl_select['other_options'] = $cfg_sl['OTHEROPTIONS'];
-
-waitWorker(1, 'sqe_config');
+waitWorker('sqe_config');
 
 $tpl = "sqe-config.html";
 $section = basename(__FILE__, '.php');
 storeBackLink($section, $tpl);
 
-include('/var/local/www/header.php');
+include('header.php');
 eval("echoTemplate(\"" . getTemplate("templates/$tpl") . "\");");
-include('footer.min.php');
+include('footer.php');

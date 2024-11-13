@@ -1,52 +1,40 @@
 <!--
-/**
- * moOde audio player (C) 2014 Tim Curtis
- * http://moodeaudio.org
- *
- * tsunamp player ui (C) 2013 Andrea Coiutti & Simone De Gregori
- * http://www.tsunamp.com
- *
- * This Program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 3, or (at your option)
- * any later version.
- *
- * This Program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- *
- * 2020-MM-DD TC moOde 6.6.0
- *
- */
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Copyright 2014 The moOde audio player project / Tim Curtis
+ * Copyright 2013 The tsunamp player ui / Andrea Coiutti & Simone De Gregori
+*/
 -->
 <!-- ABOUT -->
-<div id="about-modal" class="modal modal-sm hide" tabindex="-1" role="dialog" aria-labelledby="about-modal-label" aria-hidden="true">
+<div id="about-modal" class="modal hide" tabindex="-1" role="dialog" aria-labelledby="about-modal-label" aria-hidden="true">
+	<div class="modal-header"><button aria-label="Close" type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
+		<p id="moode-logotype"><img src="images/moode-logotype.png"></p>
+	</div>
 	<div class="modal-body">
-		<button aria-label="Close" type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
-		<p style="text-align:center;font-size:40px;font-weight:500;letter-spacing:-2px;margin-top:2px">m<span style="color:#d35400;line-height:12px">oO</span>de<span style="font-size:12px;position:relative;top:-15px;left:-3px;">™</span></p>
-			<p>Moode Audio Player is a derivative of the wonderful WebUI audio player client for MPD originally designed and coded by Andrea Coiutti and Simone De Gregori, and subsequently enhanced by early efforts from the RaspyFi/Volumio projects.</p>
-			<h4>Release Information</h4>
-			<ul>
-				<li>Release: 6.6.0 2020-MM-DD</li> <!-- NOTE: getMoodeRel() parses this  -->
-				<li>Coding:	Tim Curtis &copy; 2014</li>
-				<li>Documentation: <a class="moode-about-link" href="./relnotes.txt" target="_blank">View release notes,</a>&nbsp<a class="moode-about-link" href="./setup.txt" target="_blank">View setup guide</a></li>
-				<li>Contributors: <a class="moode-about-link" href="./CONTRIBS.html" target="_blank">View contributors</a></li>
-				<li>License: <a class="moode-about-link" href="./COPYING.html" target="_blank">View GPLv3</a></li>
-			</ul>
+		<h5>Overview</h5>
 		<p>
-			<h4>Platform Information</h4>
-			<ul>
-				<li>Raspbian: <span id="sys-raspbian-ver"></span></li>
-				<li>Linux kernel: <span id="sys-kernel-ver"></span></li>
-				<li>Platform: <span id="sys-hardware-rev"></span></li>
-				<li>Architecture: <span id="sys-processor-arch"></span></li>
-				<li>MPD version: <span id="sys-mpd-ver"></span></li>
-			</ul>
+			moOde audio player is a derivative of the wonderful WebUI audio player for MPD originally designed and coded by Andrea Coiutti and Simone De Gregori under the Tsunamp project and subsequently enhanced by early efforts from the RaspyFi/Volumio projects. Refer to the Contributors link below more information.
 		</p>
+
+		<h5>Your Privacy</h5>
+		<p>
+			We want you to know that our audio player does not serve Ads, nag for subscriptions, use cookies, analytics/tracking or any other such technology. Player preference, configuration and operational data is stored on the local boot media and is not provided to any 3rd parties.
+		</p>
+		<h5>Release Information</h5>
+		<ul>
+			<li>Release: 9.1.5 2024-MM-DD</li> <!-- NOTE: getMoodeRel() parses this  -->
+			<li>Maintainer: Tim Curtis &copy; 2014</li>
+			<li>Documentation: <a class="moode-about-link target-blank-link" href="./relnotes.txt" target="_blank">View release notes,</a>&nbsp<a class="moode-about-link target-blank-link" href="https://github.com/moode-player/docs/blob/main/setup_guide.md#setup-guide-" target="_blank">View setup guide</a></li>
+			<li>Contributors:  <a class="moode-about-link target-blank-link" href="./CONTRIBS.html" target="_blank">View contributors</a></li>
+			<li>License:       <a class="moode-about-link target-blank-link" href="./COPYING.html" target="_blank">View GPLv3</a></li>
+		</ul>
+		<h5>Platform Information</h5>
+		<ul>
+			<li>RaspiOS: <span id="sys-raspbian-ver"></span></li>
+			<li>Linux kernel: <span id="sys-kernel-ver"></span></li>
+			<li>Pi model: <span id="sys-hardware-rev"></span></li>
+			<li>MPD version: <span id="sys-mpd-ver"></span></li>
+		</ul>
 	</div>
 	<div class="modal-footer">
 		<button aria-label="Close" class="btn singleton" data-dismiss="modal" aria-hidden="true">Close</button>
@@ -54,54 +42,57 @@
 </div>
 
 <!-- CONFIGURE -->
-<div id="configure-modal" class="modal modal-sm hide" tabindex="-1" role="dialog" aria-labelledby="configure-modal-label" aria-hidden="true">
-	<div class="modal-header">
-		<button aria-label="Close" type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
+<div id="configure-modal" class="modal hide" tabindex="-1" role="dialog" aria-labelledby="configure-modal-label" aria-hidden="true">
+	<div class="modal-header"><button aria-label="Close" type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
 		<h3 id="configure-modal-label">Configuration settings</h3>
 	</div>
 	<div class="modal-body">
 		<div id="configure">
 			<ul>
-				<li><a href="lib-config.php" class="btn btn-large"><i class="fas fa-database"></i><br>Library</a></li>
-				<li><a href="snd-config.php" class="btn btn-large"><i class="fas fa-volume-up"></i><br>Audio</a></li>
-				<li><a href="net-config.php" class="btn btn-large"><i class="fas fa-sitemap"></i><br>Network</a></li>
-				<li><a href="sys-config.php" class="btn btn-large"><i class="fas fa-desktop-alt"></i><br>System</a></li>
-			</ul>
-			<br>
-			<ul>
-				<li><a href="mpd-config.php" class="btn btn-small row2-btns">MPD options</a></li>
-				<li><a href="eqp-config.php" class="btn btn-small row2-btns">Parametric EQ</a></li>
-				<li><a href="eqg-config.php" class="btn btn-small row2-btns">Graphic EQ</a></li>
-				<li class="context-menu"><a href="#notarget" class="btn btn-small row2-btns" data-cmd="setforclockradio-m">Clock radio</a></li>
-				<?php if ($_SESSION['feat_bitmask'] & $FEAT_INPSOURCE) { ?>
-					<li><a href="inp-config.php" class="btn btn-small row2-btns">Input source</a></li>
+				<li><a href="lib-config.php" class="btn btn-large"><i class="fa-solid fa-sharp fa-database"></i><br>Library</a></li>
+				<li><a href="snd-config.php" class="btn btn-large"><i class="fa-solid fa-sharp fa-volume-up"></i><br>Audio</a></li>
+				<li><a href="net-config.php" class="btn btn-large"><i class="fa-solid fa-sharp fa-sitemap"></i><br>Network</a></li>
+				<li><a href="sys-config.php" class="btn btn-large"><i class="fa-solid fa-sharp fa-gears"></i><br>System</a></li>
+				<li><a href="ren-config.php" class="btn btn-large"><i class="fa-solid fa-sharp fa-play-circle"></i><br>Renderers</a></li>
+				<li><a href="per-config.php" class="btn btn-large"><i class="fa-solid fa-sharp fa-display"></i><br>Peripherals</a></li>
+				<li><a href="mpd-config.php" class="btn btn-large"><i class="fa-solid fa-sharp fa-play"></i><br>MPD</a></li>
+				<li><a href="cdsp-config.php" class="btn btn-large"><i class="fa-solid fa-sharp fa-square-sliders-vertical"></i><br>CamillaDSP</a></li>
+				<?php if ($_SESSION['feat_bitmask'] & FEAT_MULTIROOM) { ?>
+					<li><a href="trx-config.php" class="btn btn-large"><i class="fa-solid fa-sharp fa-speakers"></i><br>Multiroom</a></li>
+				<?php } ?>
+				<?php if ($section == 'index') { ?>
+					<li class="context-menu"><a href="#notarget" class="btn btn-large" data-cmd="setforclockradio-m"><i class="fa-solid fa-sharp fa-alarm-clock"></i><br>Clock radio</a></li>
+				<?php } else { ?>
+					<li class="context-menu"><a href="#notarget" class="btn btn-large" data-cmd="setforclockradio-m" disabled onclick="return false;"><i class="fa-solid fa-sharp fa-alarm-clock"></i><br>Clock radio</a></li>
+				<?php } ?>
+				<?php if ($_SESSION['feat_bitmask'] & FEAT_INPSOURCE) { ?>
+					<li><a href="inp-config.php" class="btn btn-large"><i class="fa-solid fa-sharp fa-dial"></i><br>Input select</a></li>
 				<?php } ?>
 			</ul>
 		</div>
 	</div>
-
 	<div class="modal-footer">
 		<button aria-label="Close" class="btn singleton" data-dismiss="modal" aria-hidden="true">Close</button>
 	</div>
 </div>
 
 <!-- PLAYERS -->
-<div id="players-modal" class="modal modal-sm hide" tabindex="-1" role="dialog" aria-labelledby="players-modal-label" aria-hidden="true">
-	<div class="modal-header">
-		<button aria-label="Close" type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
-		<h3 id="players-modal-label">Other Players</h3>
+<div id="players-modal" class="modal hide" tabindex="-1" role="dialog" aria-labelledby="players-modal-label" aria-hidden="true">
+	<div class="modal-header"><button aria-label="Close" type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
+		<h3 id="players-modal-label">Players</h3>
 	</div>
-	<div class="modal-body">
+	<div id="players-modal-body" class="modal-body">
 	</div>
 	<div class="modal-footer">
-		<button aria-label="Close" class="btn singleton" data-dismiss="modal" aria-hidden="true">Close</button>
+		<button aria-label="Cancel" class="btn" data-dismiss="modal" aria-hidden="true">Cancel</button>
+		<button aria-label="Submit" class="btn btn-primary" id="btn-players-submit" aria-hidden="true">Submit</button>
+		<span id="players-submit-confirm-msg"></span>
 	</div>
 </div>
 
 <!-- AUDIO INFO -->
-<div id="audioinfo-modal" class="modal modal-sm hide" tabindex="-1" role="dialog" aria-labelledby="audioinfo-modal-label" aria-hidden="true">
-	<div class="modal-header">
-		<button aria-label="Close" type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
+<div id="audioinfo-modal" class="modal hide" tabindex="-1" role="dialog" aria-labelledby="audioinfo-modal-label" aria-hidden="true">
+	<div class="modal-header"><button aria-label="Close" type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
 		<h3 id="audioinfo-modal-label">Audio information</h3>
 	</div>
 	<div class="modal-body">
@@ -112,9 +103,8 @@
 </div>
 
 <!-- SYSTEM INFO -->
-<div id="sysinfo-modal" class="modal modal-sm hide" tabindex="-1" role="dialog" aria-labelledby="sysinfo-modal-label" aria-hidden="true">
-	<div class="modal-header">
-		<button aria-label="Close" type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
+<div id="sysinfo-modal" class="modal hide" tabindex="-1" role="dialog" aria-labelledby="sysinfo-modal-label" aria-hidden="true">
+	<div class="modal-header"><button aria-label="Close" type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
 		<h3 id="sysinfo-modal-label">System information</h3>
 	</div>
 	<div class="modal-body">
@@ -125,9 +115,8 @@
 </div>
 
 <!-- QUICK HELP -->
-<div id="quickhelp-modal" class="modal modal-sm hide" tabindex="-1" role="dialog" aria-labelledby="help-modal-label" aria-hidden="true">
-	<div class="modal-header">
-		<button aria-label="Close" type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
+<div id="quickhelp-modal" class="modal hide" tabindex="-1" role="dialog" aria-labelledby="help-modal-label" aria-hidden="true">
+	<div class="modal-header"><button aria-label="Close" type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
 		<h3 id="help-modal-label">Quick Help</h3>
 	</div>
 	<div class="modal-body">
@@ -139,9 +128,8 @@
 </div>
 
 <!-- POWER -->
-<div id="power-modal" class="modal modal-sm2 hide" tabindex="-1" role="dialog" aria-labelledby="power-modal-label" aria-hidden="true">
-	<div class="modal-header">
-		<button aria-label="Close" type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
+<div id="power-modal" class="modal hide" tabindex="-1" role="dialog" aria-labelledby="power-modal-label" aria-hidden="true">
+	<div class="modal-header"><button aria-label="Close" type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
 		<h3 id="power-modal-label">Power Options</h3>
 	</div>
 	<div class="modal-body">
@@ -156,37 +144,31 @@
 <!-- RECONNECT/RESTART/SHUTDOWN -->
 <div id="reconnect" class="hide">
 	<div class="reconnect-bg"></div>
-	<a href="javascript:location.reload(true); void 0" class="btn reconnect-btn">Reconnect</a>
+	<div class="reconnect-container">
+		<a href="javascript:location.reload(true); void 0" class="btn reconnect-btn">Reconnect</a>
+		<div class="reconnect-msg">Checking connection</div>
+	</div>
 </div>
 
 <div id="restart" class="hide">
 	<div class="reconnect-bg"></div>
-	<a href="javascript:location.reload(true); void 0" class="btn reconnect-btn">Reconnect</a>
-	<span class="reconnect-msg">System restarted</span>
+	<div class="reconnect-container">
+		<a href="javascript:location.reload(true); void 0" class="btn reconnect-btn">Reconnect</a>
+		<div class="reconnect-msg">System was restarted</div>
+	</div>
 </div>
 
 <div id="shutdown" class="hide">
 	<div class="reconnect-bg"></div>
-	<a href="javascript:location.reload(true); void 0" class="btn reconnect-btn">Reconnect</a>
-	<span class="reconnect-msg">System shut down</span>
+	<div class="reconnect-container">
+		<a href="javascript:location.reload(true); void 0" class="btn reconnect-btn">Reconnect</a>
+		<div class="reconnect-msg">System was shut down</div>
+	</div>
 </div>
 
-<!-- DISPLAY MESSAGES -->
-<script src="js/jquery-1.8.2.min.js"></script>
-<script src="js/jquery-ui-1.10.0.custom.min.js"></script>
-
 <?php
-    if (isset($_SESSION['notify']['title']) && $_SESSION['notify']['title'] != '') {
-        ui_notify($_SESSION['notify']);
-        $_SESSION['notify']['title'] = '';
-        $_SESSION['notify']['msg'] = '';
-        $_SESSION['notify']['duration'] = '3';
-    }
-
     //workerLog('-- footer.php');
-    $return = session_write_close();
-    //workerLog('session_write_close=' . (($return) ? 'TRUE' : 'FALSE'));
+    $return_val = session_write_close();
+	//workerLog('session_write_close=' . (($return_val) ? 'TRUE' : 'FALSE'));
+	echo "</body></html>";
 ?>
-
-</body>
-</html>

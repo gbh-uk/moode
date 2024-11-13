@@ -1,84 +1,140 @@
 /*!
- * moOde audio player (C) 2014 Tim Curtis
- * http://moodeaudio.org
- *
- * tsunamp player ui (C) 2013 Andrea Coiutti & Simone De Gregori
- * http://www.tsunamp.com
- *
- * This Program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 3, or (at your option)
- * any later version.
- *
- * This Program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- *
- * 2020-MM-DD TC moOde 6.6.0
- *
- */
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Copyright 2014 The moOde audio player project / Tim Curtis
+ * Copyright 2013 The tsunamp player ui / Andrea Coiutti & Simone De Gregori
+*/
 
-function notify(cmd, msg, duration) {
-    msg = msg || '';
+// arg3: duration or extra message text
+// arg4: optional duration if arg3 (extra message text) present
+function notify(title, message, arg3, arg4 = '') {
+    //console.log('title=' + title + ', message=' + message + ', arg3=' + arg3 + ', arg4=' + arg4);
+    var msgQueueAdd = 'Selected items have been added to the Queue. ';
+    var msgQueueClearAdd = 'Selected items have been added after clearing the Queue. ';
 
-    var map = {
-		add: 'Added to playlist',
-        clradd: 'Added after playlist cleared',
-		clrplay: 'Added after playlist cleared',
-        addall: 'Added to playlist',
-        playall: 'Added to playlist',
-        clrplayall: 'Added after playlist cleared',
-        update_library: 'Updating library...',
-        library_updating: 'Library update in progress',
-        library_loading: 'Library loading...',
-		remove: 'Removed from playlist',
-		move: 'Playlist items moved',
-		savepl: 'Playlist saved',
-		needplname: 'Enter a name',
-		plnameerror: 'NAS, RADIO and SDCARD cannot be used in the name',
-		needssid: 'Static IP requres an SSID',
-		needdhcp: 'Blank SSID requires DHCP',
-		delsavedpl: 'Playlist deleted',
-		newstation: 'New station created',
-		updstation: 'Station updated',
-        validation_check: 'Validation check',
-		blankentries: 'Blank entries are not allowed',
-		delstation: 'Station deleted',
-		updclockradio: 'Clock radio updated',
-		settings_updated: 'Settings updated',
-		usbaudioready: 'USB audio ready',
-		favset: 'Name has been set',
-		favadded: 'Favorite has been added',
-		nofavtoadd: 'Nothing to add',
-		mpderror: 'MPD error',
-		restart: 'Restarting...',
-		shutdown: 'Shutting down...',
-        viewport: 'Viewport'
+    var messages = {
+        // Queue
+		add_item: msgQueueAdd,
+        add_item_next: msgQueueAdd,
+        add_group: msgQueueAdd,
+        add_group_next: msgQueueAdd,
+        clear_add_item: msgQueueClearAdd,
+        clear_add_group: msgQueueClearAdd,
+        queue_item_removed: 'Selected items have been removed. ',
+		queue_item_moved: 'Selected items have been moved. ',
+        queue_cleared: 'Queue has been cleared. ',
+        playqueue_info: 'Queue statistics.<br>',
+        // Library
+        update_library: 'Library is being updated... ',
+        library_updating: 'Library update is already in progress. ',
+        library_loading: 'Library is loading... ',
+        // Playlist/Queue
+        saving_queue: 'Saving Queue. ',
+        queue_saved: 'Queue has been saved. ',
+		playlist_name_needed: 'Playlist name is empty. ',
+		playlist_name_error: 'Invalid playlist name. ',
+        setting_favorites_name: 'Setting Favorites name... ',
+        favorites_name_set: 'Favorites name has been set. ',
+        adding_favorite: 'Adding favorite... ',
+        favorite_added: 'Favorite has been added. ',
+		no_favorite_to_add: 'Nothing to add. ',
+        add_to_playlist: 'Items have been added. ',
+        select_playlist: 'Select a playlist. ',
+        // Playlist view
+        creating_playlist: 'Creating new playlist... ',
+        updating_playlist: 'Updating playlist... ',
+        new_playlist: 'Playlist has been created. ',
+		upd_playlist: 'Playlist has been updated. ',
+		del_playlist: 'Playlist has been deleted. ',
+        // Radio view
+        validation_check: 'Validation check. ',
+        creating_station: 'Creating new station... ',
+        updating_station: 'Updating station... ',
+		new_station: 'Station has been created. ',
+		upd_station: 'Station has been updated. ',
+		del_station: 'Station has been deleted. ',
+        blank_entries: 'Name or URL is blank. ',
+        // Multiroom
+        trx_querying_receivers: 'Querying receivers... ',
+        trx_no_receivers_found: 'No receivers were found. Run receiver Discovery. ',
+        trx_run_receiver_discovery: 'Run receiver Discovery. ',
+        trx_turning_receiver_off: 'Turning off receiver... ',
+        trx_discovering_receivers: 'Discovering receivers... ',
+        trx_configuring_sender: 'Configuring Sender daemon...',
+        trx_configuring_mpd: 'Switching back to MPD...',
+        // CamillaDSP
+        cdsp_update_config: 'Switching to ',
+        cdsp_config_update_failed: 'Configuraton update has failed. ',
+        // Renderers
+        renderer_disconnect: 'Disconnecting from renderer... ',
+        renderer_turnoff: 'Turning off renderer... ',
+        // Network config
+		dhcp_required: 'DHCP is required. ',
+        // System
+        restart: 'System is restarting... ',
+		shutdown: 'System is shutting down... ',
+        reconnect: 'Connection is being reestablished... ',
+        mpd_error: '',
+        userid_error: 'The image does not contain a userid.<br><br>',
+        firstuse_welcome: 'Welcome to moOde audio player.<br><br>',
+        updater: 'An update is available.<br>',
+        viewport: 'VIEWPORT<br>',
+        debug: 'DEBUG<br>',
+        // Players >>
+        discovering_players: 'Discovering players...<br>',
+        players_action_submit: 'Action submitted: ',
+        // Advanced search
+        search_fields_empty: 'Search fields are empty. ',
+        predefined_filter_invalid: 'Predefined filter is invalid. ',
+        // Library saved searches
+        search_name_blank: 'Name is blank. ',
+        // Miscellaneous
+        upd_clock_radio: 'Clock radio has been updated. ',
+		settings_updated: 'Settings have been updated. ',
+		gathering_info: 'Gathering info... ',
+        installing_plugin: 'Installing plugin... ',
+        auto_coverview: 'Auto-CoverView ',
+        nvme_formatting_drive: "Formatting drive...<br>Please wait for completion message. ",
+        downgrading_chromium: "Downgrading chromium...<br>Please wait for completion message. ",
+        // Recorder plugin
+        recorder_installed: 'Recorder has been installed. ',
+        recorder_uninstalled: 'Recorder has been uninstalled. ',
+        recorder_plugin_na: 'Recorder plugin is n/a. ',
+        recorder_deleted: 'Raw recordings have been deleted. ',
+        recorder_tagging: 'Recordings are being tagged...<br>',
+        recorder_tagged: 'Tagging is complete.<br>',
+        recorder_nofiles: 'No files to tag. '
     };
 
-    if (typeof map[cmd] === undefined) {
-        console.log('notify(): Unknown cmd (' + cmd + ')');
+    // Parse the args
+    if (typeof(arg3) == 'number') {
+        var duration = arg3;
+        var extraMessageText = '';
+    } else if (typeof(arg3) == 'string') {
+        var extraMessageText = arg3;
+        if (arg4 == '' ) {
+            var duration = NOTIFY_DURATION_DEFAULT;
+        } else {
+            var duration = arg4;
+        }
+    } else if (typeof(arg3) == 'undefined') {
+        var duration = NOTIFY_DURATION_DEFAULT;
+        var extraMessageText = '';
     }
 
-    if (typeof duration == 'undefined') {
-        duration = 2000;
+    // Check for unknown message (coding error)
+    if (typeof(messages[message]) == 'undefined') {
+        var messageText = 'Unknown message. Check the source code!'
+    } else {
+        var messageText = messages[message];
     }
-	// override and combine title and message on one line
-	if (cmd == 'update') {
-		msg = 'Path: ' + msg;
-	}
 
-    //var icon = cmd == 'needplname' || cmd == 'needssid' ? 'fas fa-info-circle' : 'fas fa-check';
-	var icon = '';
+    // Display new notification after closing any previous one
+    $('.ui-pnotify-closer').click();
     $.pnotify({
-        title: map[cmd],
-        text: msg,
-        icon: icon,
-        delay: duration,
+        title: title,
+        text: messageText + extraMessageText,
+        icon: '',
+        delay: (duration * 1000),
         opacity: 1.0,
         history: false
     });

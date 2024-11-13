@@ -1,158 +1,132 @@
 <?php
-/**
- * moOde audio player (C) 2014 Tim Curtis
- * http://moodeaudio.org
- *
- * tsunamp player ui (C) 2013 Andrea Coiutti & Simone De Gregori
- * http://www.tsunamp.com
- *
- * This Program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 3, or (at your option)
- * any later version.
- *
- * This Program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- *
- * 2020-04-24 TC moOde 6.5.0
- *
- */
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Copyright 2014 The moOde audio player project / Tim Curtis
+ * Copyright 2013 The tsunamp player ui / Andrea Coiutti & Simone De Gregori
+*/
 
-require_once dirname(__FILE__) . '/inc/playerlib.php';
+require_once __DIR__ . '/inc/common.php';
+require_once __DIR__ . '/inc/mpd.php';
+require_once __DIR__ . '/inc/music-library.php';
+require_once __DIR__ . '/inc/music-source.php';
+require_once __DIR__ . '/inc/session.php';
+require_once __DIR__ . '/inc/sql.php';
 
-if (false === ($sock = openMpdSock('localhost', 6600))) {
-	$msg = 'lib-config: Connection to MPD failed';
-	workerLog($msg);
-	exit($msg . "\n");
-}
-else {
-	playerSession('open', '' ,'');
-	$dbh = cfgdb_connect();
-}
+$dbh = sqlConnect();
+phpSession('open');
 
-// for save/remove actions
+chkVariables($_GET);
+chkVariables($_POST, array('password'));
+
+// For save, remove actions
 $initiateLibraryUpd = false;
 
-// LIB CONFIG POSTS
+//----------------------------------------------------------------------------//
+// Library Config
+//----------------------------------------------------------------------------//
 
-// rescan mpd database
-if (isset($_POST['regen_library'])) {
-	submitJob('regen_library', '', 'Regenerating library...', 'Stay on this screen until the progress spinner is cleared');
-}
-// auto-update mpd db on usb insert or remove
-if (isset($_POST['update_usb_auto_updatedb'])) {
-	if (isset($_POST['usb_auto_updatedb']) && $_POST['usb_auto_updatedb'] != $_SESSION['usb_auto_updatedb']) {
-		$_SESSION['notify']['title'] = $_POST['usb_auto_updatedb'] == '1' ? 'MPD auto-update on' : 'MPD auto-update off';
-		$_SESSION['notify']['duration'] = 3;
-		playerSession('write', 'usb_auto_updatedb', $_POST['usb_auto_updatedb']);
-	}
-}
-// re-mount nas sources
-if (isset($_POST['remount_sources'])) {
-	$result = cfgdb_read('cfg_source', $dbh);
+// NAS source re-mount
+if (isset($_POST['remount_nas_sources'])) {
+	$result = sqlRead('cfg_source', $dbh);
 	if ($result === true) {
-		$_SESSION['notify']['title'] = 'No sources configured';
+		$_SESSION['notify']['title'] = NOTIFY_TITLE_ALERT;
+		$_SESSION['notify']['msg'] = 'No NAS sources have been configured.';
+	} else {
+		$resultUnmount = nasSourceMount('unmountall');
+		$resultMount = nasSourceMount('mountall');
+		$_SESSION['notify']['title'] = NOTIFY_TITLE_INFO;
+		$_SESSION['notify']['msg'] = 'Re-mounting NAS sources...';
 	}
-	else {
-		$result_unmount = sourceMount('unmountall');
-		$result_mount = sourceMount('mountall');
-		//workerLog('lib-config: remount_sources: (' . $result_unmount . ', ' . $result_mount . ')');
-		$_SESSION['notify']['title'] = 'Re-mounting music sources...';
+}
+// NAS source mount monitor
+if (isset($_POST['update_fs_mountmon'])) {
+	if (isset($_POST['fs_mountmon']) && $_POST['fs_mountmon'] != $_SESSION['fs_mountmon']) {
+		$_SESSION['fs_mountmon'] = $_POST['fs_mountmon'];
+		submitJob('fs_mountmon', $_POST['fs_mountmon']);
 	}
+}
+// Regenerate MPD database
+if (isset($_POST['regen_library'])) {
+	unset($_GET['cmd']);
+	submitJob('regen_library', '', NOTIFY_TITLE_INFO, 'Regenerating the database. Stay on this screen until the progress spinner is cleared', NOTIFY_DURATION_INFINITE);
 }
 // Clear library cache
 if (isset($_POST['clear_libcache'])) {
-	clearLibCache();
-	$_SESSION['notify']['title'] = 'Library cache cleared';
+	unset($_GET['cmd']);
+	clearLibCacheAll();
+	$_SESSION['notify']['title'] = NOTIFY_TITLE_INFO;
+	$_SESSION['notify']['msg'] = 'Library tag cache has been cleared. It will be created when returning to Playback or Library view.';
 }
-// regenerate thumbnail cache
+// Scan or ignore .cue files by adding or removing *.cue from /var/lib/mpd/music/.mpdignore
+if (isset($_POST['update_cuefiles_ignore'])) {
+	unset($_GET['cmd']);
+	if (isset($_POST['cuefiles_ignore']) && $_POST['cuefiles_ignore'] != $_SESSION['cuefiles_ignore']) {
+		phpSession('write', 'cuefiles_ignore', $_POST['cuefiles_ignore']);
+		submitJob('cuefiles_ignore', $_POST['cuefiles_ignore'], NOTIFY_TITLE_INFO, 'MPD' . NOTIFY_MSG_SVC_RESTARTED);
+	}
+}
+// Regenerate thumbnail cache
 if (isset($_POST['regen_thmcache'])) {
-	$result = sysCmd('pgrep -l thmcache.php');
-	if (strpos($result[0], 'thmcache.php') !== false) {
-		$_SESSION['notify']['title'] = 'Process is currently running';
-	}
-	else {
-		$_SESSION['thmcache_status'] = 'Regenerating thumbnail cache...';
-		submitJob('regen_thmcache', '', 'Regenerating thumbnail cache...', '');
+	unset($_GET['cmd']);
+	$result = sysCmd('pgrep -l thumb-gen.php');
+	if (strpos($result[0], 'thumb-gen.php') !== false) {
+		$_SESSION['notify']['title'] = NOTIFY_TITLE_ALERT;
+		$_SESSION['notify']['msg'] = 'The Thumbnail Generator is currently running.';
+	} else {
+		$_SESSION['thmcache_status'] = 'Regenerating the thumbnail cache...';
+		submitJob('regen_thmcache', '', NOTIFY_TITLE_INFO, 'Regenerating the thumbnail cache. Click the VIEW STATUS button for progress.');
 	}
 }
 
-// SOURCE CONFIG POSTS
+//----------------------------------------------------------------------------//
+// NAS Source Config
+//----------------------------------------------------------------------------//
 
-// remove source
-if (isset($_POST['delete']) && $_POST['delete'] == 1) {
+// Remove NAS source
+if (isset($_POST['remove_nas_source']) && $_POST['remove_nas_source'] == 1) {
 	$initiateLibraryUpd = true;
-	$_POST['mount']['action'] = 'delete';
-	$_POST['mount']['id'] = $_SESSION['src_mpid'];
-	submitJob('sourcecfg', $_POST, '', '');
+	$_POST['mount']['action'] = 'remove_nas_source';
+	$_POST['mount']['id'] = $_SESSION['nas_src_mpid'];
+	submitJob('nas_source_cfg', $_POST);
 }
-// save source
-if (isset($_POST['save']) && $_POST['save'] == 1) {
-	// validate
-	$id = sdbquery("SELECT id from cfg_source WHERE name='" . $_POST['mount']['name'] . "'", $dbh);
-	$name = strtolower($_POST['mount']['name']);
+// Save NAS source
+if (isset($_POST['save_nas_source']) && $_POST['save_nas_source'] == 1) {
+	// Validate
+	$id = sqlQuery("SELECT id from cfg_source WHERE name='" . $_POST['mount']['name'] . "'", $dbh);
 	$address = explode('/', $_POST['mount']['address'], 2);
 	$_POST['mount']['address'] = $address[0];
 	$_POST['mount']['remotedir'] = $address[1];
 
-	// server
 	if (empty(trim($_POST['mount']['address']))) {
-		$_SESSION['notify']['title'] = 'Path cannot be blank';
-		$_SESSION['notify']['duration'] = 5;
-	}
-	// share
-	elseif ($_POST['mount']['type'] != 'upnp' && empty(trim($_POST['mount']['remotedir']))) {
-		$_SESSION['notify']['title'] = 'Share cannot be blank';
-		$_SESSION['notify']['duration'] = 5;
-	}
-	// userid
-	elseif ($_POST['mount']['type'] == 'cifs' && empty(trim($_POST['mount']['username']))) {
-		$_SESSION['notify']['title'] = 'Userid cannot be blank';
-		$_SESSION['notify']['duration'] = 5;
-	}
-	// name
-	elseif ($_POST['mount']['action'] == 'add' && !empty($id[0])) {
-		$_SESSION['notify']['title'] = 'Name already exists';
-		$_SESSION['notify']['duration'] = 5;
-	}
-	elseif (empty(trim($_POST['mount']['name']))) {
-		$_SESSION['notify']['title'] = 'Name cannot be blank';
-		$_SESSION['notify']['duration'] = 5;
-	}
-	// ok so save
-	else {
+		$_SESSION['notify']['title'] = NOTIFY_TITLE_ALERT;
+		$_SESSION['notify']['msg'] = 'Path cannot be blank.';
+	} else if (empty(trim($_POST['mount']['remotedir']))) {
+		$_SESSION['notify']['title'] = NOTIFY_TITLE_ALERT;
+		$_SESSION['notify']['msg'] = 'Share cannot be blank.';
+	} else if ($_POST['mount']['type'] == LIB_MOUNT_TYPE_SMB && empty(trim($_POST['mount']['username']))) {
+		$_SESSION['notify']['title'] = NOTIFY_TITLE_ALERT;
+		$_SESSION['notify']['msg'] = 'Userid cannot be blank.';
+	} else if ($_POST['mount']['action'] == 'add_nas_source' && !empty($id[0])) {
+		$_SESSION['notify']['title'] = NOTIFY_TITLE_ALERT;
+		$_SESSION['notify']['msg'] = 'Name already exists.';
+	} else if (empty(trim($_POST['mount']['name']))) {
+		$_SESSION['notify']['title'] = NOTIFY_TITLE_ALERT;
+		$_SESSION['notify']['msg'] = 'Name cannot be blank.';
+	} else {
 		$initiateLibraryUpd = true;
-		// cifs and nfs defaults if blank
-		if ($_POST['mount']['type'] != 'upnp') {
-			if (empty(trim($_POST['mount']['rsize']))) {$_POST['mount']['rsize'] = 61440;}
-			if (empty(trim($_POST['mount']['wsize']))) {$_POST['mount']['wsize'] = 65536;}
-			if (empty(trim($_POST['mount']['options']))) {
-				if ($_POST['mount']['type'] == 'cifs') {
-					$_POST['mount']['options'] = "vers=1.0,ro,dir_mode=0777,file_mode=0777";
-				}
-				elseif ($_POST['mount']['type'] == 'nfs') {
-					$_POST['mount']['options'] = "ro,nolock";
-				}
+		// SMB and NFS defaults if blank
+		if (empty(trim($_POST['mount']['rsize']))) {$_POST['mount']['rsize'] = 61440;}
+		if (empty(trim($_POST['mount']['wsize']))) {$_POST['mount']['wsize'] = 65536;}
+		if (empty(trim($_POST['mount']['options']))) {
+			if ($_POST['mount']['type'] == LIB_MOUNT_TYPE_SMB) {
+				$_POST['mount']['options'] = "vers=1.0,ro,noserverino,cache=none,dir_mode=0777,file_mode=0777";
+			} else if ($_POST['mount']['type'] == LIB_MOUNT_TYPE_NFS) {
+				$_POST['mount']['options'] = "soft,timeo=10,retrans=1,ro,nolock";
 			}
 		}
-		// upnp
-		else {
-			//$_POST['mount']['remotedir'] = '';
-			$_POST['mount']['username'] = '';
-			$_POST['mount']['password'] = '';
-			$_POST['mount']['charset'] = '';
-			$_POST['mount']['rsize'] = '';
-			$_POST['mount']['wsize'] = '';
-			$_POST['mount']['options'] = '';
-		}
 		// $array['mount']['key'] must be in column order for subsequent table insert
-		// table cols = id, name, type, address, remotedir, username, password, charset, rsize, wsize, options, error
-		// new id is auto generated, action = add, edit, delete
+		// Table cols = id, name, type, address, remotedir, username, password, charset, rsize, wsize, options, error
+		// New id is auto generated, action = add_nas_source, edit_nas_source, remove_nas_source
 		$array['mount']['action'] = $_POST['mount']['action'];
 		$array['mount']['id'] = $_POST['mount']['id'];
 		$array['mount']['name'] = $_POST['mount']['name'];
@@ -166,137 +140,211 @@ if (isset($_POST['save']) && $_POST['save'] == 1) {
 		$array['mount']['wsize'] = $_POST['mount']['wsize'];
 		$array['mount']['options'] = $_POST['mount']['options'];
 
-		submitJob('sourcecfg', $array, '', '');
+		submitJob('nas_source_cfg', $array);
 	}
 }
-// scanner
+// NAS scanner
 if (isset($_POST['scan']) && $_POST['scan'] == 1) {
-	$_GET['cmd'] = $_SESSION['src_action'];
-	$_GET['id'] = $_SESSION['src_mpid'];
-	// samba
-	if ($_POST['mount']['type'] == 'cifs') {
-		// scan for smb resources
-		$result = sysCmd('smbtree -N -b');
-		// sort and parse scan results
-		sort($result, SORT_NATURAL | SORT_FLAG_CASE);
-		foreach ($result as $line) {
-			if (strpos(strtolower($line), 'ipc$') === false && strpos($line, 'WORKGROUP') === false) {
-				// flatten the results
-				$line = preg_replace('/\s\s+/', ',', $line);
-				$line = str_replace('\\', '/', $line);
-				$line = str_replace('//', '', $line);
-				$line = preg_replace('/^./', '', $line);
-				$line = str_replace("\t", '', $line);
-				// load dropdown
-				$srv = explode(',', $line, 2);
-				$_address .= sprintf('<option value="%s" %s>%s</option>\n', $srv[0], '', $srv[0]);
-				// load dropdown (filter out lines containing just the server name)
-				/*if (strpos($line, '/') !== false) {
-					$srv = explode(',', $line, 2);
-					$_address .= sprintf('<option value="%s" %s>%s</option>\n', $srv[0], '', $srv[0]);
-				}*/
+	$_GET['cmd'] = $_SESSION['nas_src_action'];
+	$_GET['id'] = $_SESSION['nas_src_mpid'];
+	// SMB (Samba)
+	if ($_POST['mount']['type'] == LIB_MOUNT_TYPE_SMB) {
+		$nmbLookupResult = sysCmd("nmblookup -S -T '*' | grep '*<00>' | cut -f 1 -d '*'");
+		sort($nmbLookupResult, SORT_NATURAL | SORT_FLAG_CASE);
+
+		foreach ($nmbLookupResult as $line) {
+			$nmbLookupPart = explode(', ', $line); // [0] = host.domain, [1] = IP address
+			$smbClientResult = sysCmd("smbclient -N -g -L " . trim($nmbLookupPart[1]) . " | grep Disk | cut -f 2 -d '|'");
+			sort($smbClientResult, SORT_NATURAL | SORT_FLAG_CASE);
+			$host = strtoupper(explode('.', $nmbLookupPart[0])[0] );
+
+			foreach ($smbClientResult as $share) {
+				$_address .= sprintf('<option value="%s" %s>%s</option>\n', $host . '/' . $share, '', $host . '/' . $share);
 			}
 		}
 	}
-	// upnp
-	elseif ($_POST['mount']['type'] == 'upnp') {
-		$path = trim($_POST['mount']['address']);
+	// NFS
+	if ($_POST['mount']['type'] == LIB_MOUNT_TYPE_NFS) {
+		$thisIpAddr = getThisIpAddr();
+		$subnet = substr($thisIpAddr, 0, strrpos($thisIpAddr, '.'));
+		$port = '2049'; // NFSv4
 
-		if ($path == '..') {
-			// '.' means we are at /mnt/upnp
-			$path = dirname($_SESSION['saved_upnp_path']) == '.' ? '' : dirname($_SESSION['saved_upnp_path']);
-		}
+		sysCmd('nmap -Pn -p ' . $port . ' ' . $subnet . '.0/24 -oG /tmp/nmap.scan >/dev/null');
+		$hosts = sysCmd('cat /tmp/nmap.scan | grep "' . $port . '/open" | cut -f 1 | cut -d " " -f 2');
 
-		$result = sysCmd('find "/mnt/UPNP/' . $path . '" -maxdepth 1 -type d');
-		$_address = sprintf('<option value="%s" %s>%s</option>\n', '..', '', '..');
-
-		foreach ($result as $dir) {
-			$dir = substr($dir, 10); // strip out /mnt/UPNP/
-			if (!empty($dir) && substr($dir, 0, 1) != '.' && stripos($dir, '_search') === false && stripos($dir, '/.') === false) {
-				$_address .= sprintf('<option value="%s" %s>%s</option>\n', $dir, '', $dir);
+		foreach ($hosts as $ipAddr) {
+			$shares = sysCmd('showmount --exports --no-headers ' . $ipAddr . ' | cut -d" " -f1');
+			foreach ($shares as $share) {
+				$_address .= sprintf('<option value="%s" %s>%s</option>\n', $ipAddr . $share, '', $ipAddr . $share);
 			}
-		}
-
-		if ($path != '..' && $path != '.') {
-			session_start();
-			$_SESSION['saved_upnp_path'] = $path;
-			session_write_close();
 		}
 	}
 }
-// manual entry
+// Manual entry
 if (isset($_POST['manualentry']) && $_POST['manualentry'] == 1) {
-	$_GET['cmd'] = $_SESSION['src_action'];
-	$_GET['id'] = $_SESSION['src_mpid'];
+	$_GET['cmd'] = $_SESSION['nas_src_action'];
+	$_GET['id'] = $_SESSION['nas_src_mpid'];
 }
 
-session_write_close();
+//----------------------------------------------------------------------------//
+// NVMe Source Config
+//----------------------------------------------------------------------------//
 
-// Update library if indicated after sourcecfg job completes
-waitWorker(1, 'lib-config');
+// Remove NVMe source
+if (isset($_POST['remove_nvme_source']) && $_POST['remove_nvme_source'] == 1) {
+	$initiateLibraryUpd = true;
+	$_POST['mount']['action'] = 'remove_nvme_source';
+	$_POST['mount']['id'] = $_SESSION['nvme_src_mpid'];
+	submitJob('nvme_source_cfg', $_POST);
+}
+// Save NVMe source
+if (isset($_POST['save_nvme_source']) && $_POST['save_nvme_source'] == 1) {
+	// Validate
+	$id = sqlQuery("SELECT id from cfg_source WHERE name='" . $_POST['mount']['name'] . "'", $dbh);
+	$driveStatus = explode(',', $_POST['mount']['drive'])[1]; // device,label or device,status
+	if ($driveStatus == 'none') {
+		$_SESSION['notify']['title'] = NOTIFY_TITLE_ALERT;
+		$_SESSION['notify']['msg'] = 'No drive was selected.';
+	} else if ($_POST['mount']['action'] == 'add_nvme_source' && !empty($id[0])) {
+		$_SESSION['notify']['title'] = NOTIFY_TITLE_ALERT;
+		$_SESSION['notify']['msg'] = 'Name already exists.';
+	} else if ($driveStatus == LIB_NVME_UNFORMATTED) {
+		$_SESSION['notify']['title'] = NOTIFY_TITLE_ALERT;
+		$_SESSION['notify']['msg'] = 'Drive must be formatted first.';
+	} else if ($driveStatus == LIB_NVME_NOT_EXT4) {
+		$_SESSION['notify']['title'] = NOTIFY_TITLE_ALERT;
+		$_SESSION['notify']['msg'] = 'Drive must be ext4 format.';
+	} else if ($driveStatus == LIB_NVME_NO_LABEL) {
+		$_SESSION['notify']['title'] = NOTIFY_TITLE_ALERT;
+		$_SESSION['notify']['msg'] = 'Drive must have a volume label.';
+	} else if (empty(trim($_POST['mount']['name']))) {
+		$_SESSION['notify']['title'] = NOTIFY_TITLE_ALERT;
+		$_SESSION['notify']['msg'] = 'Name cannot be blank.';
+	} else {
+		$initiateLibraryUpd = true;
+		// $array['mount']['key'] must be in column order for subsequent table insert
+		// Table cols = id, name, type, address, remotedir, username, password, charset, rsize, wsize, options, error
+		// New id is auto generated, action = add_nvme_source, edit_nvme_source, remove_nvme_source
+		$array['mount']['action'] = $_POST['mount']['action'];
+		$array['mount']['id'] = $_POST['mount']['id'];
+		$array['mount']['name'] = $_POST['mount']['name'];
+		$array['mount']['type'] = LIB_MOUNT_TYPE_NVME;
+		$array['mount']['address'] = $_POST['mount']['drive']; // device,label or device,status
+		$array['mount']['remotedir'] = '';
+		$array['mount']['username'] = '';
+		$array['mount']['password'] = '';
+		$array['mount']['charset'] = '';
+		$array['mount']['rsize'] = '';
+		$array['mount']['wsize'] = '';
+		$array['mount']['options'] = 'noexec,nodev,noatime,nodiratime';
+
+		submitJob('nvme_source_cfg', $array);
+	}
+}
+
+//----------------------------------------------------------------------------//
+// NVMe format drive
+//----------------------------------------------------------------------------//
+
+if (isset($_POST['nvme_format_drive'])) {
+	if (empty(trim($_POST['nvme_drive_label']))) {
+		$_SESSION['notify']['title'] = NOTIFY_TITLE_ALERT;
+		$_SESSION['notify']['msg'] = 'Volume label cannot be blank.';
+	} else if (!empty(sysCmd('mount | grep -ow "' . explode(',', $_POST['nvme_drive'])[0] . '"'))) {
+		$_SESSION['notify']['title'] = NOTIFY_TITLE_ALERT;
+		$_SESSION['notify']['msg'] = 'Drive must be un-mounted first.';
+	} else {
+		$_nvme_drive = $_POST['nvme_drive'];
+		$_nvme_drive_label = $_POST['nvme_drive_label'];
+		submitJob('nvme_format_drive', $_POST['nvme_drive'] . ',' . $_POST['nvme_drive_label'],
+			NOTIFY_TITLE_INFO,
+			'Drive format complete. Return to Library Config, restart the system then mount the drive.',
+			NOTIFY_DURATION_MEDIUM);
+	}
+}
+
+phpSession('close');
+
+waitWorker('lib-config');
+
 if ($initiateLibraryUpd == true) {
-	//$title = isset($_POST['save']) ? 'Music source saved' : 'Music source removed';
-	//submitJob('update_library', '', $title, 'Updating library...');
-	session_start();
-	$_SESSION['notify']['title'] = isset($_POST['save']) ? 'Music source saved' : 'Music source removed';
-	$_SESSION['notify']['duration'] = 3;
-	session_write_close();
+	phpSession('open');
+	$_SESSION['notify']['title'] = NOTIFY_TITLE_INFO;
+	if (isset($_POST['save_nas_source'])) {
+		$_SESSION['notify']['msg'] = 'NAS source has been saved. Update or regenerate the Music database if the NAS mount was successful.';
+	} else if (isset($_POST['remove_nas_source'])) {
+		$_SESSION['notify']['msg'] = 'NAS source has been removed. Update or regenerate the Music database.';
+	} else if (isset($_POST['save_nvme_source'])) {
+		$_SESSION['notify']['msg'] = 'NVMe source has been saved. Update or regenerate the Music database if the NVMe mount was successful.';
+	} else if (isset($_POST['remove_nvme_source'])) {
+		$_SESSION['notify']['msg'] = 'NVMe source has been removed. Update or regenerate the Music database.';
+	}
+	phpSession('close');
 	unset($_GET['cmd']);
 }
 
-// LIB CONFIG FORM
+//----------------------------------------------------------------------------//
+// Populate form fields
+//----------------------------------------------------------------------------//
+
+// LIB CONFIG
 if (!isset($_GET['cmd'])) {
 	$tpl = "lib-config.html";
 
-	// display list of music sources if any
-	$mounts = cfgdb_read('cfg_source', $dbh);
+	// NAS mounts
+	$mounts = sqlQuery("SELECT * FROM cfg_source WHERE type in ('" . LIB_MOUNT_TYPE_NFS . "', '" . LIB_MOUNT_TYPE_SMB . "')", $dbh);
 	foreach ($mounts as $mp) {
-		// upnp
-		if ($mp['type'] == 'upnp') {
-			$result = sysCmd('"/var/lib/mpd/music/' . $mp['address'] . '"');
-			$icon = $result[0] != '' ? "<i class='fas fa-check green sx'></i>" : "<i class='fas fa-times red sx'></i>";
-		}
-		// cifs and nfs
-		else {
-			$icon = mountExists($mp['name']) ? "<i class='fas fa-check green sx'></i>" : "<i class='fas fa-times red sx'></i>";
-		}
-		$_mounts .= "<p><a href=\"lib-config.php?cmd=edit&id=" . $mp['id'] . "\" class='btn btn-large' style='width:240px;background-color:#333;text-align:left;'> " . $icon . " " . $mp['name'] . " (" . $mp['address'] . ") </a></p>";
+		$icon = nasMountExists($mp['name']) ? LIB_MOUNT_OK : LIB_MOUNT_FAILED;
+		$_nas_mounts .= "<a href=\"lib-config.php?cmd=edit_nas_source&id=" . $mp['id'] . "\" class='btn-large config-btn config-btn-music-source'> " . $icon . " " . $mp['name'] . " (" . $mp['address'] . ", " . $mp['type'] . ") </a>";
 	}
-
-	// messages
 	if ($mounts === true) {
-		$_mounts .= '<p class="btn btn-large" style="width: 240px; background-color: #333;">None configured</p><p></p>';
+		$_nas_mounts .= '<span class="btn-large config-btn config-btn-music-source">None configured</span>';
+	} else if ($mounts === false) {
+		$_nas_mounts .= '<span class="btn-large config-btn config-btn-music-source">Query failed</span>';
 	}
-	elseif ($mounts === false) {
-		$_mounts .= '<p class="btn btn-large" style="width: 240px; background-color: #333;">Query failed</p>';
+	// Mount monitor
+	$autoClick = " onchange=\"autoClick('#btn-set-fs-mountmon');\"";
+	$_select['fs_mountmon_on']  .= "<input type=\"radio\" name=\"fs_mountmon\" id=\"toggle-fs-mount-monitor-1\" value=\"On\" " . (($_SESSION['fs_mountmon'] == 'On') ? "checked=\"checked\"" : "") . $autoClick . ">\n";
+	$_select['fs_mountmon_off'] .= "<input type=\"radio\" name=\"fs_mountmon\" id=\"toggle-fs-mount-monitor-2\" value=\"Off\" " . (($_SESSION['fs_mountmon'] == 'Off') ? "checked=\"checked\"" : "") . $autoClick . ">\n";
+
+	// NVMe mounts
+	$mounts = sqlQuery("SELECT * FROM cfg_source WHERE type = '" . LIB_MOUNT_TYPE_NVME . "'", $dbh);
+	foreach ($mounts as $mp) {
+		$icon = nvmeMountExists($mp['name']) ? LIB_MOUNT_OK : LIB_MOUNT_FAILED;
+		$_nvme_mounts .= "<a href=\"lib-config.php?cmd=edit_nvme_source&id=" . $mp['id'] .
+			"\" class='btn-large config-btn config-btn-music-source'> " . $icon . " " .
+			$mp['name'] . ' (' . explode(',', $mp['address'])[0] . ', ext4)' . "</a>";
+	}
+	if ($mounts === true) {
+		$_nvme_mounts .= '<span class="btn-large config-btn config-btn-music-source">None configured</span>';
+	} else if ($mounts === false) {
+		$_nvme_mounts .= '<span class="btn-large config-btn config-btn-music-source">Query failed</span>';
 	}
 
-	// auto-updatedb on usb insert/remove
-	$_select['usb_auto_updatedb1'] = "<input type=\"radio\" name=\"usb_auto_updatedb\" id=\"toggle_usb_auto_updatedb0\" value=\"1\" " . (($_SESSION['usb_auto_updatedb'] == '1') ? "checked=\"checked\"" : "") . ">\n";
-	$_select['usb_auto_updatedb0'] = "<input type=\"radio\" name=\"usb_auto_updatedb\" id=\"toggle_usb_auto_updatedb1\" value=\"0\" " . (($_SESSION['usb_auto_updatedb'] == '0') ? "checked=\"checked\"" : "") . ">\n";
+	// Ignore .cue files
+	$autoClick = " onchange=\"autoClick('#btn-set-cuefiles-ignore');\"";
+	$_select['cuefiles_ignore_on'] = "<input type=\"radio\" name=\"cuefiles_ignore\" id=\"toggle-cuefiles-ignore-1\" value=\"1\" " . (($_SESSION['cuefiles_ignore'] == '1') ? "checked=\"checked\"" : "") . $autoClick . ">\n";
+	$_select['cuefiles_ignore_off'] = "<input type=\"radio\" name=\"cuefiles_ignore\" id=\"toggle-cuefiles-ignore-2\" value=\"0\" " . (($_SESSION['cuefiles_ignore'] == '0') ? "checked=\"checked\"" : "") . $autoClick . ">\n";
 
-	// thumbcache status
+	// Thumbcache status
 	$_thmcache_status = $_SESSION['thmcache_status'];
 }
 
-// SOURCE CONFIG FORM
-if (isset($_GET['cmd']) && !empty($_GET['cmd'])) {
-	$tpl = 'src-config.html';
+// NAS SOURCE CONFIG
+if (isset($_GET['cmd']) && ($_GET['cmd'] == 'edit_nas_source' || $_GET['cmd'] == 'add_nas_source')) {
+	$tpl = 'lib-nas-config.html';
 
-	// edit
 	if (isset($_GET['id']) && !empty($_GET['id'])) {
+		// Edit
+		$_action = 'edit_nas_source';
 		$_id = $_GET['id'];
-		$mounts = cfgdb_read('cfg_source',$dbh);
+		$mounts = sqlQuery("SELECT * FROM cfg_source WHERE type in ('" . LIB_MOUNT_TYPE_NFS . "', '" . LIB_MOUNT_TYPE_SMB . "')", $dbh);
 
 		foreach ($mounts as $mp) {
 			if ($mp['id'] == $_id) {
-				$_protocol = "<option value=\"" . ($mp['type'] == 'cifs' ? "cifs\">SMB (Samba)</option>" : ($mp['type'] == 'nfs' ? "nfs\">NFS</option>" : "upnp\">UPnP</option>"));
+				$_protocol = "<option value=\"" . ($mp['type'] == LIB_MOUNT_TYPE_SMB ? LIB_MOUNT_TYPE_SMB . "\">SMB (Samba)</option>" : "nfs\">NFS</option>");
 				$server = isset($_POST['nas_manualserver']) && !empty(trim($_POST['nas_manualserver'])) ? $_POST['nas_manualserver'] : $mp['address'] . '/' . $mp['remotedir'];
 				$_address .= sprintf('<option value="%s" %s>%s</option>\n', $server, 'selected', $server);
-				$_scan_btn_hide = $mp['type'] == 'nfs' ? 'hide' : '';
-				$_edit_server_hide = $mp['type'] == 'upnp' ? 'hide' : '';
-				$_userid_pwd_hide = $mp['type'] != 'cifs' ? 'hide' : '';
-				$_advanced_options_hide = $mp['type'] == 'upnp' ? 'hide' : '';
 				$_username = $mp['username'];
 				$_password = $mp['password'];
 				$_name = $mp['name'];
@@ -305,84 +353,145 @@ if (isset($_GET['cmd']) && !empty($_GET['cmd'])) {
 				$_wsize = $mp['wsize'];
 				$_options = $mp['options'];
 				$_error = $mp['error'];
+				$_scan_btn_hide = '';
+				$_edit_server_hide = '';
+				$_userid_pwd_hide = $mp['type'] == LIB_MOUNT_TYPE_NFS ? 'hide' : '';
+				$_advanced_options_hide = '';
+				$_rw_size_hide = $mp['type'] == LIB_MOUNT_TYPE_NFS ? 'hide' : '';
 				if (empty($_error)) {
-					$_hide_error = 'hide';
-				}
-				else {
-					$_moode_log = "\n" . file_get_contents(MOODE_LOG);
+					$_hide_nas_mount_error = 'style="display:none;"';
+				} else {
+					$_hide_nas_mount_error = '';
+					$_nas_mount_error_msg = LIB_MOUNT_FAILED . 'Click to view the mount error.';
+					$_moode_log = "\n" . implode("\n", sysCmd('cat ' . MOODE_LOG . ' | grep -A 1 "Try (mount"'));
 				}
 			}
 		}
 
-		$_action = 'edit';
+		phpSession('open');
+		$_SESSION['nas_src_action'] = $_action;
+		$_SESSION['nas_src_mpid'] = $_id;
+		phpSession('close');
+	} else if ($_GET['cmd'] == 'add_nas_source') {
+		// Add
+		$_action = 'add_nas_source';
+		$_hide_remove_nas_source = 'hide';
+		$_hide_nas_mount_error = 'style="display:none;"';
 
-		session_start();
-		$_SESSION['src_action'] = $_action;
-		$_SESSION['src_mpid'] = $_id;
-		session_write_close();
-	}
-	// create
-	elseif ($_GET['cmd'] == 'add') {
-		$_hide_remove = 'hide';
-		$_hide_error = 'hide';
-
-		// manual server entry/edit for cifs and nfs
-		if (isset($_POST['nas_manualserver'])) {
-			if ($_POST['mounttype'] == 'cifs' || empty($_POST['mounttype'])) {
-				$_protocol = "<option value=\"cifs\" selected>SMB (Samba)</option>\n";
+		// Manual server entry/edit or scanner
+		if (isset($_POST['nas_manualserver']) || isset($_POST['scan'])) {
+			if ($_POST['mounttype'] == LIB_MOUNT_TYPE_SMB || $_POST['mount']['type'] == LIB_MOUNT_TYPE_SMB) {
+				$_protocol = "<option value=\"" . LIB_MOUNT_TYPE_SMB . "\" selected>SMB (Samba)</option>\n";
 				$_protocol .= "<option value=\"nfs\">NFS</option>\n";
-				$_protocol .= "<option value=\"upnp\">UPnP</option>\n";
 				$_scan_btn_hide = '';
 				$_edit_server_hide = '';
 				$_userid_pwd_hide = '';
 				$_advanced_options_hide = '';
-				$_options = 'vers=1.0,ro,dir_mode=0777,file_mode=0777';
-			}
-			elseif ($_POST['mounttype'] == 'nfs') {
+				$_rw_size_hide = '';
+				$_options = 'ro,noserverino,cache=none,dir_mode=0777,file_mode=0777';
+			} else if ($_POST['mounttype'] == LIB_MOUNT_TYPE_NFS || $_POST['mount']['type'] == LIB_MOUNT_TYPE_NFS) {
 				$_protocol = "<option value=\"cifs\">SMB (Samba)</option>\n";
 				$_protocol .= "<option value=\"nfs\" selected>NFS</option>\n";
-				$_protocol .= "<option value=\"upnp\">UPnP</option>\n";
-				$_scan_btn_hide = 'hide';
+				$_scan_btn_hide = '';
 				$_edit_server_hide = '';
 				$_userid_pwd_hide = 'hide';
 				$_advanced_options_hide = '';
-				$_options = 'ro,nolock';
+				$_rw_size_hide = 'hide';
+				$_options = 'soft,timeo=10,retrans=1,ro,nolock';
 			}
-		}
-		// upnp
-		elseif ($_POST['mount']['type'] == 'upnp') {
-			$_protocol = "<option value=\"cifs\">SMB (Samba)</option>\n";
-			$_protocol .= "<option value=\"nfs\">NFS</option>\n";
-			$_protocol .= "<option value=\"upnp\" selected>UPnP</option>\n";
-			$_edit_server_hide = 'hide';
-			$_userid_pwd_hide = 'hide';
-			$_advanced_options_hide = 'hide';
-		}
-		// cifs and nfs
-		else {
+		} else {
+			// CIFS (default))
 			$_protocol = "<option value=\"cifs\" selected>SMB (Samba)</option>\n";
 			$_protocol .= "<option value=\"nfs\">NFS</option>\n";
-			$_protocol .= "<option value=\"upnp\">UPnP</option>\n";
-			$_options = 'vers=1.0,ro,dir_mode=0777,file_mode=0777';
+			$_options = 'ro,noserverino,cache=none,dir_mode=0777,file_mode=0777';
 		}
 
-		$server = isset($_POST['nas_manualserver']) && !empty(trim($_POST['nas_manualserver'])) ? $_POST['nas_manualserver'] : ' '; // space for select
+		$server = isset($_POST['nas_manualserver']) && !empty(trim($_POST['nas_manualserver'])) ? $_POST['nas_manualserver'] : ' '; // Space for select
 		$_address .= sprintf('<option value="%s" %s>%s</option>\n', $server, 'selected', $server);
 		$_rsize = '61440';
 		$_wsize = '65536';
 
-		$_action = 'add';
+		phpSession('open');
+		$_SESSION['nas_src_action'] = $_action;
+		$_SESSION['nas_src_mpid'] = '';
+		phpSession('close');
+	}
+}
 
-		session_start();
-		$_SESSION['src_action'] = $_action;
-		$_SESSION['src_mpid'] = '';
-		session_write_close();
+// NVME SOURCE CONFIG
+if (isset($_GET['cmd']) && ($_GET['cmd'] == 'edit_nvme_source' || $_GET['cmd'] == 'add_nvme_source')) {
+	$tpl = 'lib-nvme-config.html';
+
+	if (isset($_GET['id']) && !empty($_GET['id'])) {
+		// Edit
+		$_action = 'edit_nvme_source';
+		$_id = $_GET['id'];
+		$mounts = sqlQuery("SELECT * FROM cfg_source WHERE type = '" . LIB_MOUNT_TYPE_NVME . "'", $dbh);
+
+		foreach ($mounts as $mp) {
+			if ($mp['id'] == $_id) {
+				$parts = explode(',', $mp['address']);
+				$selectName = $parts[0] . ' (' . $parts[1] . ')';
+				$_nvme_drives .= sprintf('<option value="%s" %s>%s</option>\n', $mp['address'], '', $selectName);
+				$_name = $mp['name'];
+				$_error = $mp['error'];
+				if (empty($_error)) {
+					$_hide_nvme_mount_error = 'style="display:none;"';
+				} else {
+					$_hide_nvme_mount_error = '';
+					$_nvme_mount_error_msg = LIB_MOUNT_FAILED . 'Click to view the mount error.';
+					$_moode_log = "\n" . implode("\n", sysCmd('cat ' . MOODE_LOG . ' | grep -A 1 "Try (mount"'));
+				}
+			}
+		}
+		phpSession('open');
+		$_SESSION['nvme_src_action'] = $_action;
+		$_SESSION['nvme_src_mpid'] = $_id;
+		phpSession('close');
+	} else if ($_GET['cmd'] == 'add_nvme_source') {
+		// Add
+		$_action = 'add_nvme_source';
+		$_hide_remove_nvme_source = 'hide';
+		$_hide_nvme_mount_error = 'style="display:none;"';
+
+		// NVMe drives
+		$drives = nvmeListDrives();
+		if (empty($drives)) {
+			$_nvme_drives = sprintf('<option value="%s" %s>%s</option>\n', 'none,none', 'selected', 'None');
+		} else {
+			foreach ($drives as $device => $status) {
+				$selected = '';
+				$_nvme_drives .= sprintf('<option value="%s" %s>%s</option>\n',
+					$device . ',' . $status, $selected, $device . ' (' . $status . ')');
+			}
+		}
+
+		phpSession('open');
+		$_SESSION['nvme_src_action'] = $_action;
+		$_SESSION['nvme_src_mpid'] = $_id;
+		phpSession('close');
+	}
+}
+// NVME FORMAT DRIVE
+if (isset($_GET['cmd']) && $_GET['cmd'] == 'format_nvme_drive') {
+	$tpl = 'lib-nvme-format.html';
+
+	// NVMe drives
+	$drives = nvmeListDrives();
+	if (empty($drives)) {
+		$_nvme_drives = sprintf('<option value="%s" %s>%s</option>\n', 'none,none', 'selected', 'None');
+	} else {
+		foreach ($drives as $device => $status) {
+			$selected = '';
+			$_nvme_drives .= sprintf('<option value="%s" %s>%s</option>\n',
+				$device . ',' . $status, $selected, $device . ' (' . $status . ')');
+		}
 	}
 }
 
 $section = basename(__FILE__, '.php');
 storeBackLink($section, $tpl);
 
-include('/var/local/www/header.php');
+include('header.php');
 eval("echoTemplate(\"".getTemplate("templates/$tpl")."\");");
-include('footer.min.php');
+include('footer.php');

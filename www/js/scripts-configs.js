@@ -1,51 +1,47 @@
-/*1
- * moOde audio player (C) 2014 Tim Curtis
- * http://moodeaudio.org
- *
- * tsunamp player ui (C) 2013 Andrea Coiutti & Simone De Gregori
- * http://www.tsunamp.com
- *
- * This Program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 3, or (at your option)
- * any later version.
- *
- * This Program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- *
- * 2020-05-03 TC moOde 6.5.2
- *
- */
+/*!
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Copyright 2014 The moOde audio player project / Tim Curtis
+ * Copyright 2013 The tsunamp player ui / Andrea Coiutti & Simone De Gregori
+*/
+
 jQuery(document).ready(function($){ 'use strict';
+    // Call $.pnotify if created by backend
+    if( window.ui_notify != undefined ) {
+        ui_notify();
+    }
+
     GLOBAL.scriptSection = 'configs';
-	$('#config-back').show();
+
 	$('#config-tabs').css('display', 'flex');
-	$('#menu-bottom').css('display', 'none');
-	$('#configure .row2-btns').hide();
+	$('#panel-footer').css('display', 'none');
+    $('.dropdown-menu > li > a').css('color', 'var(--config-text-color)');
 
-	// compensate for Android popup kbd changing the viewport, also for notch phones
+    // For ultra-wide screens
+    if ($('.container').css('margin-right') != '0px') {
+        $('#panel-header').css('margin-right', '25vw');
+        $('#panel-header').css('margin-left', '25vw');
+    }
+
+	// Compensate for Android popup kbd changing the viewport, also for notch phones
 	$("meta[name=viewport]").attr("content", "height=" + $(window).height() + ", width=" + $(window).width() + ", initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover");
-	// store device pixel ratio
-    $.post('command/moode.php?cmd=updcfgsystem', {'library_pixelratio': window.devicePixelRatio});
+	// Store device pixel ratio
+    $.post('command/cfg-table.php?cmd=upd_cfg_system', {'library_pixelratio': window.devicePixelRatio});
 
-	// load current cfg
-    $.getJSON('command/moode.php?cmd=read_cfgs_no_radio', function(result) {
-    	SESSION.json = result['cfg_system'];
-    	THEME.json = result['cfg_theme'];
-        NETWORK.json = result['cfg_network'];
+	// Load current cfg
+    $.getJSON('command/cfg-table.php?cmd=get_cfg_tables_no_radio', function(data) {
+    	SESSION.json = data['cfg_system'];
+    	THEME.json = data['cfg_theme'];
+        NETWORK.json = data['cfg_network'];
+        SSID.json = data['cfg_ssid'];
 
+        $('#config-back, #config-home').show();
     	UI.mobile = $(window).width() < 480 ? true : false; /* mobile-ish */
     	setFontSize();
 
     	var tempOp = themeOp;
     	if (themeOp == 0.74902) {tempOp = 0.1};
 
-    	// set theme
+    	// Set theme
     	themeColor = str2hex(THEME.json[SESSION.json['themename']]['tx_color']);
     	themeBack = 'rgba(' + THEME.json[SESSION.json['themename']]['bg_color'] + ',' + SESSION.json['alphablend'] +')';
     	themeMcolor = str2hex(THEME.json[SESSION.json['themename']]['tx_color']);
@@ -73,8 +69,14 @@ jQuery(document).ready(function($){ 'use strict';
     	else if ($('.sys-config').length) {
     		$('#sys-config-btn').addClass('active');
     	}
+        else if ($('.ren-config').length) {
+    		$('#ren-config-btn').addClass('active');
+    	}
+        else if ($('.per-config').length) {
+    		$('#per-config-btn').addClass('active');
+    	}
 
-        // setup pines notify
+        // Setup pines notify
         $.pnotify.defaults.history = false;
 
     	// Connect to server engines
@@ -85,33 +87,52 @@ jQuery(document).ready(function($){ 'use strict';
         if (GLOBAL.thmUpdInitiated == true) {
             $('.busy-spinner').show();
         }
+
+        // On-screen keyboard
+        if (GLOBAL.chromium && SESSION.json['on_screen_kbd'] == 'On') {
+             initializeOSK();
+        }
+
+        // First boot check for userid
+        if (SESSION.json['user_id'] == NO_USERID_DEFINED) {
+            notify(NOTIFY_TITLE_ERROR, 'userid_error', NOTIFY_MSG_NO_USERID, NOTIFY_DURATION_INFINITE);
+        }
 });
 	//
 	// EVENT HANDLERS
 	//
 
-	// back button on header
+	//Back button on header
 	$('#config-back a').click(function() {
+        // When returning to panels hide the config tabs
 		if ($(this).attr('href') == '/index.php') {
 			$('#config-tabs').hide();
 		}
 	});
 
-	// display spinner when form submitted
+	// Display spinner when form submitted
 	$('.btn-submit').click(function() {
 		$('.busy-spinner').show();
 	});
 
+    // Dim disabled toggle controls
+    $('input[type=radio]:disabled').each (function() {
+        $('.' + $(this).attr('id').slice(0, -2)).css('opacity', '.5');
+    });
+
 	// EQ configs
 	$('#eqp-curve-name').change(function() {
 		//console.log('http://' + location.host + 'eqp-config.php?curve=' + $(this).val());
-		location.assign('http://' + location.host + '/eqp-config.php?curve=' + $(this).val());
+		location.assign('http://' + location.host + location.pathname +'?curve=' + $(this).val());
 	});
 	$('#eqg-curve-name').change(function() {
 		//console.log('http://' + location.host + 'eqg-config.php?curve=' + $(this).val());
 		location.assign('http://' + location.host + '/eqg-config.php?curve=' + $(this).val());
 	});
     $('#master-gain-up, #master-gain-dn').on('mousedown mouseup click', function(e) {
+        //e.stopPropagation();
+        e.preventDefault();
+
     	if (e.type == 'mousedown') {
     		var selector = $(this).attr('id');
     	    eqGainUpdInterval = setInterval(function() {
@@ -126,75 +147,70 @@ jQuery(document).ready(function($){ 'use strict';
     	}
     });
     $('#new-curvename').on('shown.bs.modal', function() {
-		$('#new-curvename-input').focus();
+        setTimeout(function() {
+            $('#new-curvename-input').focus();
+        }, DEFAULT_TIMEOUT);
 	});
 
-	// network config show static on page load/reload
-	if ($('#eth0-method').length && $('#eth0-method').val() == 'static') {
-		$('#eth0-static').show();
+	// Network config
+    // Ethernet
+	if ($('#eth0method').length && $('#eth0method').val() == 'static') {
+		$('#eth0-static-section').show();
 	}
-	if ($('#wlan0-method').length && $('#wlan0-method').val() == 'static') {
-		$('#wlan0-static').show();
+	if ($('#wlan0method').length && $('#wlan0method').val() == 'static') {
+		$('#wlan0-static-section').show();
 	}
-	// show/hide static
-	$('#eth0-method').change(function() {
+	$('#eth0method').change(function() {
 		if ($(this).val() == 'static') {
-			$('#eth0-static').show();
-			//$('#wlan0-method').val('dhcp').change(); // prevent both from being set to 'static'
-		}
-		else {
-			$('#eth0-static').hide();
+			$('#eth0-static-section').show();
+		} else {
+			$('#eth0-static-section').hide();
 		}
 	});
-	$('#wlan0-method').change(function() {
+    // Wireless
+	$('#wlan0method').change(function() {
 		if ($(this).val() == 'static') {
-			if ($('#wlan0ssid').val() != '' && $('#wlan0ssid').val() != 'None (activates AP mode)') {
-			 	$('#wlan0-static').show();
-				//$('#eth0-method').val('dhcp').change(); // prevent both from being set to 'static'
+			if ($('#wlan0ssid').val() == 'None' || $('#wlan0ssid').val() == 'Activate Hotspot') {
+                notify(NOTIFY_TITLE_ALERT, 'dhcp_required');
+                $('#wlan0method').val('dhcp').change();
+			} else {
+                $('#wlan0-static-section').show();
 			}
-			else {
-				notify('needssid');
-			}
-		}
-        else {
-            $('#wlan0-static').hide();
+		} else {
+            $('#wlan0-static-section').hide();
         }
 	});
-	// wlan0 ssid
 	$('#manual-ssid').on('shown.bs.modal', function() {
-		$('#wlan0otherssid').focus();
+        setTimeout(function() {
+            $('#wlan0otherssid').focus();
+        }, DEFAULT_TIMEOUT);
 	});
 	$('#wlan0ssid').change(function() {
-        //console.log(NETWORK.json['wlan0']['wlanssid'], NETWORK.json['wlan0']['wlan_psk']);
-        if ($('#wlan0ssid').val() == NETWORK.json['wlan0']['wlanssid']) {
-            $('#wlan0pwd').val(NETWORK.json['wlan0']['wlan_psk']);
-        }
-        else {
+        var ssid = $('#wlan0ssid').val();
+        if (typeof(SSID.json[ssid]) != 'undefined') {
+            // Set to saved SSID values
+            $('#wlan0pwd').val(SSID.json[ssid]['psk']);
+            $('#wlan0method').val(SSID.json[ssid]['method']).change();
+            $('#wlan0ipaddr').val(SSID.json[ssid]['ipaddr']);
+            $('#wlan0netmask').val(SSID.json[ssid]['netmask']);
+            $('#wlan0gateway').val(SSID.json[ssid]['gateway']);
+            $('#wlan0pridns').val(SSID.json[ssid]['pridns']);
+            $('#wlan0secdns').val(SSID.json[ssid]['secdns']);
+        } else {
+            // Reset to DHCP and empty password
+            $('#wlan0method').val('dhcp').change();
             $('#wlan0pwd').val('');
         }
-
-		if ($('#wlan0-method').val() == 'static') {
-			if ($(this).val() == '' || $(this).val() == 'None (activates AP mode)') {
-                $('#wlan0-static').hide();
-				notify('needdhcp');
-			}
-            else {
-                $('#wlan0-static').show();
-            }
-		}
 	});
-    // apd0 ssid
     $('#apdssid').on('input', function() {
-        //console.log(NETWORK.json['apd0']['wlanssid'], NETWORK.json['apd0']['wlan_psk']);
         if ($('#apdssid').val() == NETWORK.json['apd0']['wlanssid']) {
-            $('#apdpwd').val(NETWORK.json['apd0']['wlan_psk']);
-        }
-        else {
+            $('#apdpwd').val(NETWORK.json['apd0']['wlanpsk']);
+        } else {
             $('#apdpwd').val('');
         }
 	});
 
-    // Show/hide password plaintext
+    // Show/hide password plaintext (the eye icon)
     $('.show-hide-password').click(function(e) {
         var password_field = document.getElementById($(this).data('id'));
         if ($('#' + $(this).data('id')).val() != '') {
@@ -202,59 +218,134 @@ jQuery(document).ready(function($){ 'use strict';
         }
     });
 
-	// music source protocols (type)
+	// Music source protocols
 	if ($('#type').length) {
-		$('#mounttype').val($('#type').val()); // hidden input on manual server entry
+		$('#mounttype').val($('#type').val()); // Hidden input on manual server entry
 	}
 	$('#type').change(function() {
-		$('#mounttype').val($(this).val()); // hidden input on manual server entry
+		$('#mounttype').val($(this).val()); // Hidden input on manual server entry
 		if ($(this).val() == 'cifs') {
 			$('#userid-password').show();
-			$('#options').val('vers=1.0,sec=ntlm,ro,dir_mode=0777,file_mode=0777');
-			$('#info-mount-flags').html('vers=2.0 or 3.0 may be needed and/or sec=ntlm removed depending on what the NAS requires.');
-			$('#scan-btn').show();
+			//$('#scan-btn').show();
 			$('#edit-server').show();
 			$('#advanced-options').show();
+            $('#rw-size').show();
+            $('#options').val('ro,noserverino,dir_mode=0777,file_mode=0777');
+            //$('#info-mount-flags').html('vers=2.0 or 3.0 may be needed and/or sec=ntlm/ntlmssp removed depending on what the NAS requires.');
 		}
-		else if ($(this).val() == 'nfs') {
+		else if ($(this).val() == LIB_MOUNT_TYPE_NFS) {
 			$('#userid-password').hide();
-			$('#options').val('ro,nolock');
-			$('#info-mount-flags').html('vers=1.0 or higher may be needed depending on what the NAS requires.');
-			$('#scan-btn').hide();
+			//$('#scan-btn').hide();
 			$('#edit-server').show();
 			$('#advanced-options').show();
-		}
-		else if ($(this).val() == 'upnp') {
-			$('#userid-password').hide();
-			$('#scan-btn').show();
-			$('#edit-server').hide();
-			$('#advanced-options').hide();
+            $('#rw-size').hide();
+            $('#options').val('soft,timeo=10,retrans=1,ro,nolock');
+            //$('#info-mount-flags').html('vers=1.0 or higher may be needed depending on what the NAS requires.');
 		}
 	});
 
-	// nas config pre-load manual server entry
+	// NAS config pre-load manual server entry
 	$('#manual-server').on('shown.bs.modal', function() {
-		$('#manualserver').focus();
+        setTimeout(function() {
+            $('#manualserver').focus();
+        }, DEFAULT_TIMEOUT);
 	});
 	$('#editserver').click(function(e) {
 		$('#manualserver').val($('#address').val().trim());
 	});
 
-	// view thmcache status
+	// View thumbnail cache generation status
     $('#view-thmcache-status').click(function(e) {
-        $.getJSON('command/moode.php?cmd=thmcachestatus', function(result) {
-            $('#thmcache-status').html(result);
+        $.getJSON('command/music-library.php?cmd=thumcache_status', function(data) {
+            $('#thmcache-status').html(data);
         });
 	});
 
-    // info button (i) show/hide toggle
-    $('.info-toggle').click(function(e) {
+    // MPD config show/hide Selective resample
+    $('#sox-enabled, #sox-sample-rate').change(function() {
+        if ($('#sox-enabled').val() == 'Yes' && $('#sox-sample-rate').val() != '*') {
+            $('#selective-resample').show();
+        }
+        else {
+            $('#selective-resample').hide();
+        }
+	});
+    // MPD config show Selective resample field on page load/reload
+	if ($('#sox-enabled').length && $('#sox-enabled').val() == 'Yes' && $('#sox-sample-rate').val() != '*') {
+		$('#selective-resample').show();
+	}
+    // MPD config show/hide SoX custom recipe fields
+    $('#sox-quality').change(function() {
+        if ($('#sox-quality').val() == 'custom') {
+            $('#sox-custom-recipe').show();
+        }
+        else {
+            $('#sox-custom-recipe').hide();
+        }
+	});
+    // MPD config show SoX custom recipe fields on page load/reload
+	if ($('#sox-quality').length && $('#sox-quality').val() == 'custom') {
+		$('#sox-custom-recipe').show();
+	}
+
+    // Sysinfo notification
+    $('#sysinfo-menu-item').click(function(e) {
+        notify(NOTIFY_TITLE_INFO, 'gathering_info', NOTIFY_DURATION_SHORT);
+    });
+
+    // Multiroom adv options show/hide
+    $('#multiroom-tx-adv-options-label').click(function(e) {
+        $('#multiroom-tx-adv-options').toggleClass('hide');
+        var labelText = $('#multiroom-tx-adv-options-label').html() == 'Show' ? 'Hide' : 'Show'
+        $('#multiroom-tx-adv-options-label').html(labelText);
+        $.post('command/multiroom.php?cmd=tx_adv_toggle', {'adv_toggle': labelText});
+    });
+    $('#multiroom-rx-adv-options-label').click(function(e) {
+        $('#multiroom-rx-adv-options').toggleClass('hide');
+        var labelText = $('#multiroom-rx-adv-options-label').html() == 'Show' ? 'Hide' : 'Show'
+        $('#multiroom-rx-adv-options-label').html(labelText);
+        $.post('command/multiroom.php?cmd=rx_adv_toggle', {'adv_toggle': labelText});
+    });
+
+    // Button "Create Backup"
+    // This global is used to prevent the "Reconnect" screen from being displayed while a backup zip is being created/downloaded
+    // NOTE: This global is tested and reset to false in playerlib.js function renderReconnect()
+    $('#backup-create').click(function(e) {
+        GLOBAL.backupCreate = true;
+    });
+
+    // CamillaDSP 2 config description
+    $('#cdsp-mode').change(function(e) {
+        var selectedConfig = $('#cdsp-mode :selected').text();
+        $.getJSON('command/camilla.php?cmd=cdsp_get_config_desc&selected_config=' + selectedConfig, function(data) {
+            $('#cdsp-config-description').text(data);
+        });
+    });
+
+    // Format NVMe drive screen
+    $('#btn-format-nvme-drive').click(function(e) {
+        var parts = $('#nvme-drive').val().split(',');
+        $('#modal-nvme-drive-txt').text(parts[0]);
+        $('#modal-nvme-drive').val($('#nvme-drive').val());
+        $('#modal-nvme-drive-label').val($('#nvme-drive-label').val());
+    });
+    // Format NVMe drive submit (close modal)
+    $('#btn-format-nvme-drive-submit').click(function(e) {
+        $('#format-nvme-drive-modal').modal('toggle');
+    });
+
+    // Downgrade chromium submit (close modal)
+    $('#btn-downgrade-chromium-submit').click(function(e) {
+        $('#downgrade-chromium-modal').modal('toggle');
+    });
+
+    // Info button (i) show/hide toggle
+    $('.config-info-toggle').click(function(e) {
 		var spanId = '#' + $(this).data('cmd');
-		if ($(spanId).hasClass('hide')) {
-			$(spanId).removeClass('hide');
-		}
-		else {
-			$(spanId).addClass('hide');
+		if ($(spanId).css('display') == 'none') {
+			$(spanId).css('display', 'block');
+		} else {
+			$(spanId).css('display', 'none');
 		}
     });
 });

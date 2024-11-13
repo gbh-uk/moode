@@ -1,28 +1,38 @@
-<!-- 
-/**
- * moOde audio player (C) 2014 Tim Curtis
- * http://moodeaudio.org
- *
- * This Program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 3, or (at your option)
- * any later version.
- *
- * This Program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- *
- * 2019-04-12 TC moOde 5.0
- *
- */
--->	
+<!--
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Copyright 2014 The moOde audio player project / Tim Curtis
+*/
+-->
 <div>
+	<div class="$_players_action_div_hide">
+		<label class="control-label" for="players-dropdown">Action</label>
+		<div class="controls">
+			<div class="btn-group bootstrap-select select-large">
+				<button id="btn-players-dropdown" type="button" class="btn btn-inverse dropdown-toggle" data-toggle="dropdown">
+					<div id="players-action" class="filter-option pull-left">
+						<span>No action</span>
+					</div>&nbsp;
+					<div class="caret"></div>
+				</button>
+				<div class="dropdown-menu open">
+					<ul class="dropdown-menu custom-select inner" role="menu">
+						<li class="modal-dropdown-text"><a href="#notarget" data-cmd="players-action-sel"><span class="text">No action</span></a></li>
+						<li class="modal-dropdown-text"><a href="#notarget" data-cmd="players-action-sel"><span class="text">Shutdown</span></a></li>
+						<li class="modal-dropdown-text"><a href="#notarget" data-cmd="players-action-sel"><span class="text">Restart</span></a></li>
+						<li class="modal-dropdown-text"><a href="#notarget" data-cmd="players-action-sel"><span class="text">Update library</span></a></li>
+					</ul>
+				</div>
+			</div>
+			<a aria-label="Help" class="info-toggle" data-cmd="info-players-action" href="#notarget"><i class="fa-regular fa-sharp fa-info-circle"></i></a>
+			<span id="info-players-action" class="help-block hide">
+				Click an individual player to open it or select an action that can be submitted to all players listed. The Submit button will request a second click for confirmation.
+			</span>
+		</div>
+	</div>
+
 	<div id="players">
-		<ul style="margin:0">
+		<ul id="players-ul">
 			$_players
 		</ul>
 	</div>

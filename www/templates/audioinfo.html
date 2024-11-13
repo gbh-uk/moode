@@ -1,120 +1,131 @@
 <!--
-/**
- * moOde audio player (C) 2014 Tim Curtis
- * http://moodeaudio.org
- *
- * This Program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 3, or (at your option)
- * any later version.
- *
- * This Program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- *
- * 2019-10-02 TC moOde 6.3.0
- *
- */
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Copyright 2014 The moOde audio player project / Tim Curtis
+*/
 -->
-<div id="container-audioinfo">
-	<div>
-		<strong>Input / Output</strong>
-		<table style="table-layout:fixed; border-collapse:collapse; width:100%;">
-			<col span="1" style="width:8.5em;">
-			<tr>
-				<td style="text-align:right;">Source:&nbsp;</td>
-				<td style="text-align:left;">$file</td>
-			</tr>
-			<tr>
-				<td style="text-align:right;">Encoded at:&nbsp;</td>
-				<td style="text-align:left;">$encoded_at</td>
-			</tr>
-			<tr>
-				<td style="text-align:right;">Decoded to:&nbsp;</td>
-				<td style="text-align:left;">$decoded_to$decode_rate</td>
-			</tr>
-			<tr>
-				<td style="text-align:right;">Destination:&nbsp;</td>
-				<td style="text-align:left;">$output_destination</td>
-			</tr>
-			<tr>
-				<td style="text-align:right;">Output rate:&nbsp;</td>
-				<td style="text-align:left;">$hwparams_format$hwparams_calcrate</td>
-			</tr>
-		</table>
+<div id="container-iteminfo">
+	<div id="audioinfo-tabs" class="viewswitch-cfgs hide">
+		<button id="audioinfo-track" class="btn">Track</button>
+		<button id="audioinfo-playback" class="btn">Playback</button>
+	</div>
+	<div id="audioinfo">
+		<div class="h5">Input / Output</div>
+			<li>
+				<span class="left">Source</span>
+				<span class="right">$_file</span>
+			</li>
+			<li>
+				<span class="left">Source format</span>
+				<span class="right">$_encoded_at</span>
+			</li>
+			<li>
+				<span class="left">Decoded to</span>
+				<span class="right">$_decoded_to$_decode_rate</span>
+			</li>
+			<li>
+				<span class="left">Output format</span>
+				<span class="right">$_alsa_output_format</span>
+			</li>
+			<li>
+				<span class="left">ALSA mode</span>
+				<span class="right">$_alsa_output_mode</span>
+			</li>
+			<li>
+				<span class="left">Audio chain</span>
+				<span class="right">$_audio_output_chain</span>
+			</li>
+			<li class="$_alsa_loopback_class">
+				<span class="left">Loopback</span>
+				<span class="right">$_alsa_loopback</span>
+			</li>
 
-		<strong>DSP operations</strong>
-		<table style="table-layout:fixed; border-collapse:collapse; width:100%;">
-			<col span="1" style="width:8.5em;">
-			<tr>
-				<td style="text-align:right;">Volume ctl:&nbsp;</td>
-				<td style="text-align:left;">$volume_ctl</td>
-			</tr>
-			<tr>
-				<td style="text-align:right;">Resampling:&nbsp;</td>
-				<td style="text-align:left;">$resampler_format$resampler_quality</td>
-			</tr>
-			<tr>
-				<td style="text-align:right;">Polarity inv:&nbsp;</td>
-				<td style="text-align:left;">$polarity_inv</td>
-			</tr>
-			<tr>
-				<td style="text-align:right;">Crossfade:&nbsp;</td>
-				<td style="text-align:left;">$crossfade</td>
-			</tr>
-			<tr>
-				<td style="text-align:right;">Crossfeed:&nbsp;</td>
-				<td style="text-align:left;">$crossfeed</td>
-			</tr>
-			<tr>
-				<td style="text-align:right;">Parametric EQ:&nbsp;</td>
-				<td style="text-align:left;">$peq</td>
-			</tr>
-			<tr>
-				<td style="text-align:right;">Graphic EQ:&nbsp;</td>
-				<td style="text-align:left;">$geq</td>
-			</tr>
-			<tr>
-				<td style="text-align:right;">Replaygain:&nbsp;</td>
-				<td style="text-align:left;">$replaygain</td>
-			</tr>
-			<tr>
-				<td style="text-align:right;">Normalize vol:&nbsp;</td>
-				<td style="text-align:left;">$vol_normalize</td>
-			</tr>
-			<tr>
-				<td style="text-align:right;">Chip options:&nbsp;</td>
-				<td style="text-align:left;">$chip_options</td>
-			</tr>
-		</table>
+		<div class="h5">DSP operations</div>
+			<li>
+				<span class="left">Resampling</span>
+				<span class="right">$_resample_format</span>
+			</li>
+			<li class="$_resample_quality">
+				<span class="left">Quality</span>
+				<span class="right">$_resample_quality</span>
+			</li>
+			<!-- This is to control visibility of the feature in case MPD no longer supports the patch -->
+			<li class="$_selective_resampling_hide">
+				<span class="left">Selective</span>
+				<span class="right">$_selective_resample</span>
+			</li>
+			<li class="$_polarity_inv">
+				<span class="left">Polarity invert</span>
+				<span class="right">$_polarity_inv</span>
+			</li>
+			<li class="$_crossfade">
+				<span class="left">Crossfade</span>
+				<span class="right">$_crossfade</span>
+			</li>
+			<li class="$_crossfeed">
+				<span class="left">Crossfeed</span>
+				<span class="right">$_crossfeed</span>
+			</li>
+			<li class="$_peq">
+				<span class="left">Parametric EQ</span>
+				<span class="right">$_peq</span>
+			</li>
+			<li class="$_geq">
+				<span class="left">Graphic EQ</span>
+				<span class="right">$_geq</span>
+			</li>
+			<li class="$_camilladsp">
+				<span class="left">CamillaDSP</span>
+				<span class="right">$_camilladsp</span>
+			</li>
+			<li>
+				<span class="left">Volume type</span>
+				<span class="right">$_volume_mixer</span>
+			</li>
+			<li>
+				<span class="left">Volume levels</span>
+				<span class="right">$_volume_levels</span>
+			</li>
+			<li class="$_replaygain">
+				<span class="left">Replaygain</span>
+				<span class="right">$_replaygain</span>
+			</li>
+			<li class="$_vol_normalize">
+				<span class="left">Normalize vol</span>
+				<span class="right">$_vol_normalize</span>
+			</li>
+			<li class="$_chip_options">
+				<span class="left">Chip options</span>
+				<span class="right">$_chip_options</span>
+			</li>
 
-		<strong>Audio Device</strong>
-		<table style="table-layout:fixed; border-collapse:collapse; width:100%;">
-			<col span="1" style="width:8.5em;">
-			<tr>
-				<td style="text-align:right;">Device:&nbsp;</td>
-				<td style="text-align:left;">$devname</td>
-			</tr>
-			<tr>
-				<td style="text-align:right;">Chip:&nbsp;</td>
-				<td style="text-align:left;">$dacchip</td>
-			</tr>
-			<tr>
-				<td style="text-align:right;">Interface:&nbsp;</td>
-				<td style="text-align:left;">$iface</td>
-			</tr>
-			<tr>
-				<td style="text-align:right;">Formats:&nbsp;</td>
-				<td style="text-align:left;">$audio_formats</td>
-			</tr>
-			<tr>
-				<td style="text-align:right;">Platform:&nbsp;</td>
-				<td style="text-align:left;">$hdwr_rev</td>
-			</tr>
-		</table>
+		<div class="h5">Audio Device</div>
+		<li>
+			<span class="left">Device</span>
+			<span class="right">$_devname</span>
+		</li>
+		<li>
+			<span class="left">Mixer name</span>
+			<span class="right">$_mixer_name</span>
+		</li>
+		<li class="$_chip_hide">
+			<span class="left">Chip</span>
+			<span class="right">$_dacchip</span>
+		</li>
+		<li>
+			<span class="left">Interface</span>
+			<span class="right">$_iface</span>
+		</li>
+		<li>
+			<span class="left">Formats</span>
+			<span class="right">$_audio_formats</span>
+		</li>
+		<li>
+			<span class="left">Pi model</span>
+			<span class="right">$_hdwr_rev</span>
+		</li>
+	</div>
+	<div id="trackinfo">
+		<div id="trackdata"></div>
 	</div>
 </div>

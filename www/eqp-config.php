@@ -1,141 +1,148 @@
 <?php
-/**
- * moOde audio player (C) 2014 Tim Curtis
- * http://moodeaudio.org
- *
- * This Program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 3, or (at your option)
- * any later version.
- *
- * This Program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- *
- * 2019-08-08 TC moOde 6.0.0
- *
- */
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Copyright 2014 The moOde audio player project / Tim Curtis
+*/
 
-require_once dirname(__FILE__) . '/inc/playerlib.php';
+require_once __DIR__ . '/inc/common.php';
+require_once __DIR__ . '/inc/eqp.php';
+require_once __DIR__ . '/inc/mpd.php';
+require_once __DIR__ . '/inc/session.php';
+require_once __DIR__ . '/inc/sql.php';
 
-playerSession('open', '' ,'');
-$dbh = cfgdb_connect();
+$dbh = sqlConnect();
+phpSession('open');
 
-// apply setting changes
-if (isset($_POST['save']) && $_POST['save'] == '1') {
-	// format individual band params
-	for($i = 1; $i <= 4; $i++) {
-		$_POST['band' . $i . '_params'] = $_POST['band' . $i . '_enabled'] . ' ' . $_POST['band' . $i . '_freq'] . ' ' . (float)$_POST['band' . $i . '_q'] . ' ' . (float)$_POST['band' . $i . '_gain'];
+chkVariables($_POST);
+
+$eqp12 = Eqp12($dbh);
+
+$curveConfig = null;
+$_selected_curve_id = null;
+
+function postData2Config($data, $bands) {
+	$config = [];
+	$config['bands'] = [];
+
+	for($i = 1; $i <= $bands; $i++) {
+		$bandConfig = [];
+		$bandConfig['enabled'] = $data['band' . $i . '_enabled'] ;
+        $bandConfig['frequency'] = $data['band' . $i . '_freq'];
+        $bandConfig['q'] = (float)$data['band' . $i . '_q'];
+		$bandConfig['gain'] = (float)$data['band' . $i . '_gain'];
+		array_push($config['bands'], $bandConfig);
 	}
-
-	// add or update
-	$result = sdbquery("SELECT id FROM cfg_eqfa4p WHERE curve_name='" . $_POST['curve_name'] . "'", $dbh);
-	if (empty($result[0])) {
-		// add
-		$newid = sdbquery('SELECT MAX(id)+1 FROM cfg_eqfa4p', $dbh);
-		$result = sdbquery("INSERT INTO cfg_eqfa4p VALUES ('" . $newid[0][0] . "','" . $_POST['curve_name'] . "','" . (float)$_POST['master_gain'] . "','" . $_POST['band1_params']  . "','" . $_POST['band2_params'] . "','" . $_POST['band3_params'] . "','" . $_POST['band4_params'] . "')", $dbh);
-		$_GET['curve'] = $_POST['curve_name'];
-		$_SESSION['notify']['title'] = 'New curve added';
-	}
-	else {
-		// update
-		$value = array('master_gain' => (float)$_POST['master_gain'], 'band1_params' => $_POST['band1_params'], 'band2_params' => $_POST['band2_params'], 'band3_params' => $_POST['band3_params'], 'band4_params' => $_POST['band4_params']);
-		cfgdb_update('cfg_eqfa4p', $dbh, $_POST['curve_name'], $value);
-		$_SESSION['notify']['title'] = 'Curve updated';
-	}
+	$config['master_gain'] = (float)$data['master_gain'];
+	return $config;
 }
 
-// play/test curve
-if (isset($_POST['play']) && $_POST['play'] == '1') {
-	// format individual band params
-	for($i = 1; $i <= 4; $i++) {
-		$_POST['band' . $i . '_params'] = $_POST['band' . $i . '_enabled'] . ' ' . $_POST['band' . $i . '_freq'] . ' ' . (float)$_POST['band' . $i . '_q'] . ' ' . (float)$_POST['band' . $i . '_gain'];
+if (isset($_POST['curve_id']) && isset($_POST['save']) && $_POST['save'] == '1') {
+	$curveID = intval($_POST['curve_id']);
+	$config = postData2Config($_POST, 12);
+	$eqp12->setpreset($curveID, null, $config);
+	$_selected_curve_id = $curveID;
+
+	if ($curveID == $eqp12->getActivePresetIndex()) {
+		$playing = sysCmd('mpc status | grep "\[playing\]"');
+		$eqp12->applyConfig($config);
+		sysCmd('systemctl restart mpd');
+		// Wait for mpd to start accepting connections
+		$sock = openMpdSock('localhost', 6600);
+		closeMpdSock($sock);
+		// Then initiate play
+		if (!empty($playing)) {
+			sysCmd('mpc play');
+		}
 	}
 
-	$params = $_POST['band1_params'] . '  ' . $_POST['band2_params'] . '  ' . $_POST['band3_params'] . '  ' . $_POST['band4_params'] . '  ' . (float)$_POST['master_gain'];
-	sysCmd('sed -i "/controls/c\ \t\t\tcontrols [ ' . $params . ' ]" ' . ALSA_PLUGIN_PATH . '/eqfa4p.conf');
+	$_SESSION['notify']['title'] = NOTIFY_TITLE_INFO;
+	$_SESSION['notify']['msg'] = 'Curve updated.';
+}
 
+if (isset($_POST['play']) && $_POST['play'] == '1') {
+	$config = postData2Config($_POST, 12);
+	$eqp12->applyConfig($config);
 	sysCmd('systemctl restart mpd');
-
-	// wait for mpd to start accepting connections
+	// Wait for mpd to start accepting connections
 	$sock = openMpdSock('localhost', 6600);
-	// initiate play
+	// Initiate play
 	sendMpdCmd($sock, 'stop');
 	$resp = readMpdResp($sock);
 	sendMpdCmd($sock, 'play');
 	$resp = readMpdResp($sock);
 	closeMpdSock($sock);
 
-	playerSession('write', 'eqfa4p', $_POST['curve_name']);
-
-	$_SESSION['notify']['title'] = 'Playing curve';
+	$curveConfig = $config;
+	$_SESSION['notify']['title'] = NOTIFY_TITLE_INFO;
+	$_SESSION['notify']['msg'] = 'Playing curve.';
 }
 
-//workerLog('newcurvename=(' . $_POST['newcurvename'] . '), rmcurve=(' . $_POST['rmcurve'] . '), curve=(' .  $_GET['curve'] . ')');
-// add, remove, change, refresh
-if (isset($_POST['newcurvename'])) {
-	$_search_curve = 'Default';
-}
-elseif (isset($_POST['rmcurve'])) {
-	$result = sdbquery("DELETE FROM cfg_eqfa4p WHERE curve_name='" . $_GET['curve'] . "'", $dbh);
-	$_search_curve = 'Default';
-	$_SESSION['notify']['title'] = 'Curve removed';
-}
-elseif (isset($_GET['curve'])) {
-	$_search_curve = $_GET['curve'];
-}
-else {
-	$_search_curve = $_SESSION['eqfa4p'] == 'Off' ? 'Default' : $_SESSION['eqfa4p'];
+// Add, remove, change, refresh
+if (isset($_POST['curve_id']) && isset($_POST['newcurvename']) && $_POST['newcurvename'] == '1') {
+	$curveID = intval($_POST['curve_id']);
+	$newCurveID = $eqp12->setpreset(null, $_POST['new_curve_name'], $eqp12->getpreset($curveID));
+	if ($newCurveID) {
+		$_selected_curve_id = $newCurveID;
+		$_SESSION['notify']['title'] = NOTIFY_TITLE_INFO;
+		$_SESSION['notify']['msg'] = 'New curve added.';
+	}
+} else if (isset($_POST['curve_id']) && isset($_POST['rmcurve'])) {
+	$currentID = intval($_POST['curve_id']);
+	if ($currentID && $currentID != 1) {
+		$eqp12->unsetpreset($currentID);
+		$_selected_curve_id = 1;
+		$_SESSION['notify']['title'] = NOTIFY_TITLE_INFO;
+		$_SESSION['notify']['msg'] = 'Curve removed.';
+	}
+} else if ($_selected_curve_id == null and isset($_GET['curve'])) {
+	$_selected_curve_id = $_GET['curve'];
+} else if ($_selected_curve_id == null) {
+	$_selected_curve_id = $eqp12->getActivePresetIndex();
 }
 
-session_write_close();
+phpSession('close');
 
-// load curve list
-$_selected_curve = 'Default';
-$curveList = sdbquery('SELECT curve_name FROM cfg_eqfa4p', $dbh);
-foreach ($curveList as $curve) {
-	$selected = ($_search_curve == $curve['curve_name'] && $_POST['newcurvename'] != '1') ? 'selected' : '';
-	$_select['curve_name'] .= sprintf('<option value="%s" %s>%s</option>\n', $curve['curve_name'], $selected, $curve['curve_name']);
+// Load curve list
+if (!$_selected_curve_id) {
+	$_selected_curve_id = 1;
+}
+
+$curveList = $eqp12->getPresets();
+foreach ($curveList as $curveID => $curveName) {
+	$selected = ($_selected_curve_id == $curveID) ? 'selected' : '';
+	$_select['curve_name'] .= sprintf("<option value='%s' %s>%s</option>\n", $curveID, $selected, $curveName);
 	if ($selected == 'selected') {
-		$_selected_curve = $curve['curve_name'];
+		$_selected_curve = $curveName;
 	}
 }
 
-if (isset($_POST['newcurvename']) && $_POST['newcurvename'] == '1') {
-	$_select['curve_name'] .= sprintf('<option value="%s" %s>%s</option>\n', $_POST['new-curvename'], 'selected', $_POST['new-curvename']);
-	$_selected_curve = $_POST['new-curvename'];
+// Set control states
+$_disable_play = $_SESSION['eqfa12p'] == 'Off' ? 'disabled' : '';
+$_disable_rm = $_selected_curve_id == 1 ? 'disabled' : '';
+$_disable_rm_msg = $_selected_curve_id == 1 ? 'The Default curve cannot be removed' : '';
+
+// Load curve params
+if (!$curveConfig) {
+	$curveConfig = $eqp12->getpreset($_selected_curve_id);
 }
 
-// set control states
-$_disable_play = $_SESSION['eqfa4p'] == 'Off' ? 'disabled' : '';
-$_disable_rm = $_selected_curve == 'Default' ? 'disabled' : '';
-$_disable_rm_msg = $_selected_curve == 'Default' ? 'Default curve cannot be removed' : '';
+$_select['master_gain'] = $curveConfig['master_gain'];
 
-// load curve params
-$result = sdbquery("SELECT * FROM cfg_eqfa4p WHERE curve_name='" . $_search_curve . "'", $dbh);
-
-$_select['master_gain'] = $result[0]['master_gain'];
-
-for($i = 1; $i <= 4; $i++) {
-	$params = explode(' ', $result[0]['band' . $i . '_params']);
-
-	$_select['band' . $i . '_enabled'] .= sprintf('<option value="%s"%s>%s</option>\n', '1', $params[0] == '1' ? 'selected' : '', 'Yes');
-	$_select['band' . $i . '_enabled'] .= sprintf('<option value="%s"%s>%s</option>\n', '0', $params[0] == '0' ? 'selected' : '', 'No');
-	$_select['band' . $i . '_freq'] = $params[1];
-	$_select['band' . $i . '_q'] = $params[2];
-	$_select['band' . $i . '_gain'] = $params[3];
+foreach($curveConfig['bands'] as $bandKey => $bandConfig) {
+	$i = $bandKey + 1;
+	$_select['band' . $i . '_enabled'] .= sprintf('<option value="%s"%s>%s</option>\n', '1', $bandConfig['enabled'] == 1 ? 'selected' : '', 'Yes');
+	$_select['band' . $i . '_enabled'] .= sprintf('<option value="%s"%s>%s</option>\n', '0', $bandConfig['enabled'] == 0 ? 'selected' : '', 'No');
+	$_select['band' . $i . '_freq'] = $bandConfig['frequency'];
+	$_select['band' . $i . '_q'] = $bandConfig['q'];
+	$_select['band' . $i . '_gain'] = $bandConfig['gain'];
 }
 
-waitWorker(1, 'eqp-config');
+waitWorker('eqp-config');
 
 $tpl = "eqp-config.html";
 $section = basename(__FILE__, '.php');
 storeBackLink($section, $tpl);
 
-include('/var/local/www/header.php');
+include('header.php');
 eval("echoTemplate(\"" . getTemplate("templates/$tpl") . "\");");
-include('footer.min.php');
+include('footer.php');

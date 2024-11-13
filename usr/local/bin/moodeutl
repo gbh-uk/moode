@@ -1,110 +1,143 @@
 #!/usr/bin/php
 <?php
-/**
- * moOde audio player (C) 2014 Tim Curtis
- * http://moodeaudio.org
- *
- * This Program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 3, or (at your option)
- * any later version.
- *
- * This Program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- *
- * 2020-05-03 TC moOde 6.5.2
- *
- */
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Copyright 2014 The moOde audio player project / Tim Curtis
+*/
 
-define('VERSION', '1.5.0');
-define('SQLDB', '/var/local/www/db/moode-sqlite3.db');
+const VERSION = '9.0.0';
 
-// Features availability bitmask
-// NOTE: Updates must also be made to matching code blocks in playerlib.js, sysinfo.sh, moodeutl, and footer.php
-// sqlite3 /var/local/www/db/moode-sqlite3.db "select value from cfg_system where param='feat_bitmask'"
-// sqlite3 /var/local/www/db/moode-sqlite3.db "UPDATE cfg_system SET value='31679' WHERE param='feat_bitmask'"
-const FEAT_KERNEL		= 1;		// y Kernel architecture option on System Config
-const FEAT_AIRPLAY		= 2;		// y Airplay renderer
-const FEAT_MINIDLNA 	= 4;		// y DLNA server
-const FEAT_MPDAS		= 8; 		// y MPD audio scrobbler
-const FEAT_SQUEEZELITE	= 16;		// y Squeezelite renderer
-const FEAT_UPMPDCLI 	= 32;		// y UPnP client for MPD
-const FEAT_SQSHCHK		= 64;		// 	 Require squashfs for software update
-const FEAT_GMUSICAPI	= 128;		// y Google Play music service
-const FEAT_LOCALUI		= 256;		// y Local display
-const FEAT_INPSOURCE	= 512;		// y Input source select
-const FEAT_UPNPSYNC 	= 1024;		//   UPnP volume sync
-const FEAT_SPOTIFY		= 2048;		// y Spotify Connect renderer
-const FEAT_GPIO 		= 4096;		// y GPIO button handler
-const FEAT_DJMOUNT		= 8192;		// y UPnP media browser
-const FEAT_BLUETOOTH	= 16384;	// y Bluetooth renderer
-//						-------
-//						  31679
+set_include_path('/var/www/inc');
+
+// Suppress warning messages
+error_reporting(E_ERROR | E_PARSE);
+
+// Constants
+require_once 'constants.php';
+
+// Daemon loop sleep intervals
+require_once 'sleep-interval.php';
 
 $features = array(
-	FEAT_KERNEL => 'Kernel architecture',
-	FEAT_AIRPLAY =>	'Airplay renderer',
+	FEAT_HTTPS => 'HTTPS mode',
+	FEAT_AIRPLAY =>	'AirPlay renderer',
 	FEAT_MINIDLNA => 'DLNA server',
-	FEAT_MPDAS => 'MPD audio scrobbler',
+	FEAT_RECORDER => 'Stream recorder',
 	FEAT_SQUEEZELITE => 'Squeezelite renderer',
 	FEAT_UPMPDCLI => 'UPnP client for MPD',
 	FEAT_SQSHCHK => 'Require squashfs for software update',
-	FEAT_GMUSICAPI => 'Google Play music service',
+	FEAT_ROONBRIDGE => 'RoonBridge renderer',
 	FEAT_LOCALUI => 'Local display',
 	FEAT_INPSOURCE => 'Input source select',
 	FEAT_UPNPSYNC => 'UPnP volume sync',
 	FEAT_SPOTIFY => 'Spotify Connect renderer',
 	FEAT_GPIO => 'GPIO button handler',
-	FEAT_DJMOUNT => 'UPnP media browser',
-	FEAT_BLUETOOTH => 'Bluetooth renderer'
+	FEAT_PLEXAMP => 'Plexamp renderer',
+	FEAT_BLUETOOTH => 'Bluetooth renderer',
+	FEAT_DEVTWEAKS	=> 'Developer tweaks',
+	FEAT_MULTIROOM	=> 'Multiroom audio'
 );
 
-$feat_bitmask = trim(shell_exec("sqlite3 " .  SQLDB . " \"SELECT value FROM cfg_system WHERE param='feat_bitmask'\""));
+$featBitmask = trim(shell_exec('sqlite3 ' .  SQLDB_PATH . " \"SELECT value FROM cfg_system WHERE param='feat_bitmask'\""));
 
 $option = isset($argv[1]) ? $argv[1] : '';
 
 switch ($option) {
 	case '-a':
-		print_features($features, $feat_bitmask);
+		printFeatures($features, $featBitmask);
 		break;
 	case '-A':
-		update_features($features, $feat_bitmask, $argv);
+		updateFeatures($features, $featBitmask, $argv);
 		break;
 	case '-d':
-		dump_session();
+		dumpSession($argv);
 		break;
 	case '-D':
-		delete_session_var($argv);
+		deleteSessionVar($argv);
+		break;
+	case '-e':
+		exportAutoconfig($argv);
+		break;
+	case '-i':
+		importAutoconfig();
 		break;
 	case '-f':
 	case '-F':
-		audio_formats($option);
+		audioFormats($option);
 		break;
 	case '-l':
-		moode_log();
+		moodeLog();
 		break;
 	case '-m':
-		system_monitor();
-		break;
-	case '-q':
-		sql_query($argv);
-		break;
-	case '-r':
-		restart_servers();
+		systemMonitor();
 		break;
 	case '-s':
-		system_info();
+		systemInfo();
+		break;
+	case '-c':
+		detectSMBHosts();
+		break;
+	case '-C':
+		detectSMBShares($argv);
+		break;
+	case '-N':
+		detectNFSHosts();
+		break;
+	case '-M':
+		detectMPDHosts();
+		break;
+	case '-o':
+		listAudioOverlays();
+		break;
+	case '-q':
+		sqlQuery($argv);
+		break;
+	case '-r':
+		restartServers();
+		break;
+	case '-R':
+		restartRenderer($argv);
 		break;
 	case '-t':
-		tail_log();
+		tailLog();
 		break;
 	case '-u':
-		check_station_urls();
+	case '-U':
+		checkStationUrls($argv);
+		break;
+	case '--hwparams':
+		printHWParams();
+		break;
+	case '--btreset':
+		bluetoothReset();
+		break;
+	case '--odcclear':
+		outputDeviceCacheClear();
+		break;
+	case '--mpdlog':
+		printMPDLog();
+		break;
+	case '--updlog':
+		printUpdateLog();
+		break;
+	case '--mountmonlog':
+		printMountMonLog();
+		break;
+	case '--autocfglog':
+		printAutoCfgLog();
+		break;
+	case '--sleepint':
+		printSleepInt();
+		break;
+	case '--mooderel':
+		$file = file_get_contents('/var/www/footer.min.php');
+		echo substr($file, strpos($file, 'Release: ') + 9, 16) . "\n";
+		break;
+	case '--pirev':
+		echo shell_exec('/var/www/util/pirev.py');
+		break;
+	case '--osinfo':
+		echo shell_exec('/var/www/util/sysutil.sh "get-osinfo"');
 		break;
 	case '--version':
 		echo VERSION . "\n";
@@ -117,36 +150,59 @@ Moode utility programs
 
 With no OPTION print the help text and exit.
 
- -a\t\tprint features availability
- -A [add|rm N] \tupdate features availability
- -d\t\tdump session file (requires sudo)
- -D [var name] \tdelete session variable (requires sudo)
- -f\t\tprint supported audio formats
- -F\t\tprint full alsacap info
- -l\t\tprint moode log
- -m\t\trun system monitor
- -q\t\tquery sql database
- -r\t\trestart servers
- -s\t\tprint system info
- -t\t\tprint last 10 lines of moode log and wait
- -u\t\tcheck radio station urls for playability
- --version\tprint the program version
- --help\t\tprint this help text\n";
+ -a\t\tPrint features availability
+ -A [add|rm N] \tUpdate features availability
+ -d\t\tDump session file (requires sudo)
+ -d [-nr]\tDump session file, no radio (requires sudo)
+ -d [-gv var]\tDump session file, get value (requires sudo)
+ -D [var] \tDelete session variable (requires sudo)
+ -e [filename]\tExport settings to [filename] or ~/moodecfg-<timestamp>.ini (requires sudo)
+ -i\t\tImport settings from /boot/moodecfg.ini (requires sudo)
+ -f\t\tPrint supported audio formats
+ -F\t\tPrint full alsacap info
+ -l\t\tPrint moode log
+ -m\t\tRun system monitor
+ -s\t\tPrint system info
+ -c\t\tScan for SMB hosts
+ -C\t\tScan for SMB shares [host | IP address]
+ -N\t\tScan for NFS hosts
+ -M\t\tScan for MPD hosts
+ -o\t\tList audio overlays
+ -q\t\tQuery sql database
+ -r\t\tRestart servers
+ -R\t\tRestart renderer [--bluetooth | --airplay | --spotify | --squeezelite | --plexamp | --roonbridge]
+ -t\t\tPrint last 10 lines of moode log and wait
+ -u\t\tCheck radio station urls for playability
+ -U\t\tCheck station urls, list only unplayable
+ --hwparams\tPrint ALSA hardware params
+ --btreset\tReset Bluetooth to off
+ --odcclear\tClear output device cache
+ --mpdlog\tPrint MPD log
+ --updlog\tPrint in-place update log
+ --mountmonlog\tPrint mount monitor log
+ --autocfglog\tPrint auto config update log
+ --sleepint\tPrint daemon sleep intervals
+ --mooderel\tPrint moOde release
+ --pirev\tPrint Pi revision
+ --osinfo\tPrint OS info
+ --version\tPrint program version
+ --help\t\tPrint this help text\n";
 		break;
 }
 
+// NOTE: This is a copy of the function in /inc/common.php
 function sysCmd($cmd) {
 	exec('sudo ' . $cmd . " 2>&1", $output);
 	return $output;
 }
 
-function print_features($features, $feat_bitmask) {
+function printFeatures($features, $featBitmask) {
 	foreach ($features as $key => $value) {
-		echo $key . "\t" . ($key & $feat_bitmask ? 'y' : '') . "\t" . $value . "\n";
+		echo $key . "\t" . ($key & $featBitmask ? 'y' : '') . "\t" . $value . "\n";
 	}
 }
 
-function update_features($features, $feat_bitmask, $argv) {
+function updateFeatures($features, $featBitmask, $argv) {
 	if (!isset($argv[2])) {
 		echo 'Missing 2nd argument [add or rm]' . "\n";
 		return;
@@ -168,53 +224,76 @@ function update_features($features, $feat_bitmask, $argv) {
 		}
 	}
 
-	$bitmask = (int)$feat_bitmask;
+	$bitmask = (int)$featBitmask;
 	$arg3 = (int)$argv[3];
 
 	if ($match == false) {
 		echo '3rd argument N does equal any feature value' . "\n";
 		return;
-	}
-	elseif ($argv[2] == 'add' && ($arg3 & $bitmask)) {
+	} else if ($argv[2] == 'add' && ($arg3 & $bitmask)) {
 		echo 'Feature is already enabled, cannot add' . "\n";
 		return;
-	}
-	elseif ($argv[2] == 'rm' && !($arg3 & $bitmask)) {
+	} else if ($argv[2] == 'rm' && !($arg3 & $bitmask)) {
 		echo 'Feature is not already enabled, cannot remove' . "\n";
 		return;
-	}
-	else {
-		$new_bitmask = $argv[2] == 'add' ? $bitmask + $arg3 : $bitmask - $arg3;
-		shell_exec("sqlite3 " .  SQLDB . " \"UPDATE cfg_system set value='" . $new_bitmask . "' WHERE param='feat_bitmask'\"");
-		echo 'Old bitmask ' . $feat_bitmask . "\n";
-		echo 'New bitmask ' . $new_bitmask . "\n";
+	} else {
+		$newBitmask = $argv[2] == 'add' ? $bitmask + $arg3 : $bitmask - $arg3;
+		shell_exec("sqlite3 " .  SQLDB_PATH . " \"UPDATE cfg_system set value='" . $newBitmask . "' WHERE param='feat_bitmask'\"");
+		echo 'Old bitmask ' . $featBitmask . "\n";
+		echo 'New bitmask ' . $newBitmask . "\n";
 	}
 }
 
-function dump_session() {
-	if (posix_getuid() != 0){
+function dumpSession($argv) {
+	if (posix_getuid() != 0) {
 		echo "This option requires sudo\n";
 		return;
 	}
 
-	$session_id = trim(shell_exec("sqlite3 " . SQLDB . " \"SELECT value FROM cfg_system WHERE param='sessionid'\""));
-	session_id($session_id);
-	session_start();
-	foreach ($_SESSION as $key => $value) {
-		// Radio stations
-		if (substr($key, 0, 5) == 'http:' || substr($key, 0, 6) == 'https:' || $key == 'zx reserved 499') {
-			echo $key . ', ' . $value['name'] . "\n";
-		}
-		// Cfg_system, etc
-		else {
-			echo $key . ', ' . (is_array($value) ? 'Array' : $value) . "\n";
+	$validArgs = array('-nr', '-gv');
+	if (!empty($argv[2]) && !in_array($argv[2], $validArgs)) {
+		echo '2nd argument must be -nr or -gv' . "\n";
+		return;
+	} else {
+		$arg2 = $argv[2];
+		if ($arg2 == '-gv' && empty($argv[3])) {
+			echo '3nd argument is missing' . "\n";
+			return;
+		} else {
+			$arg3 = $argv[3]; // Session variable name
 		}
 	}
+
+	setSessionId();
+	session_start();
 	session_write_close();
+
+	if ($arg2 == '-gv') {
+		echo $_SESSION[$arg3] . "\n";
+	} else {
+		foreach ($_SESSION as $key => $value) {
+			// Radio stations
+			if (substr($key, 6, 1) == '/') {
+				if ($arg2 != '-nr') {
+					echo $key . '|' .
+						$value['name'] . '|' .
+						$value['type'] . '|' .
+						$value['logo'] . '|' .
+						$value['home_page'] . '|' .
+						$value['bitrate'] . '|' .
+						$value['format'] . '|' .
+						$value['monitor'] . "\n";
+				}
+			} else {
+				// Cfg_system, etc
+				echo $key . '|' . (is_array($value) ? 'Array' : $value) . "\n";
+			}
+		}
+	}
 }
 
-function delete_session_var($argv) {
-	if (posix_getuid() != 0){
+function deleteSessionVar($argv) {
+	if (posix_getuid() != 0) {
 		echo "This option requires sudo\n";
 		return;
 	}
@@ -224,142 +303,400 @@ function delete_session_var($argv) {
 		return;
 	}
 
-	$session_id = trim(shell_exec("sqlite3 " . SQLDB . " \"SELECT value FROM cfg_system WHERE param='sessionid'\""));
-	session_id($session_id);
+	setSessionId();
 	session_start();
 	unset($_SESSION[$argv[2]]);
 	session_write_close();
 }
 
-function audio_formats($option) {
-	$card_num = trim(shell_exec("sqlite3 " . SQLDB . " \"SELECT value FROM cfg_mpd WHERE param='device'\""));
-	$audio_output = trim(shell_exec('cat /proc/asound/card0/pcm0p/sub0/hw_params | grep closed'));
+function audioFormats($option) {
+	$cardNum = trim(shell_exec("sqlite3 " . SQLDB_PATH . " \"SELECT value FROM cfg_mpd WHERE param='device'\""));
 
-	if ($audio_output == 'closed') {
-		// Just formats for the configured device
-		if ($option == '-f') {
-			$result = shell_exec('alsacap -C ' . $card_num . ' -D 0 2>&1 | grep "Sample formats:"');
-			if (!empty($result)) {
-				echo explode(': ', $result)[1];
+	if (empty(trim(file_get_contents('/proc/asound/card' . $cardNum . '/id')))) {
+		echo 'No device found at MPD configured card ' . $cardNum . "\n";
+	} else {
+		$hwParams = trim(shell_exec('cat /proc/asound/card' . $cardNum . '/pcm0p/sub0/hw_params | grep closed'));
+
+		if ($hwParams == 'closed') {
+			// Just formats for the configured device
+			if ($option == '-f') {
+				$result = shell_exec('alsacap -C ' . $cardNum . ' -D 0 2>&1 | grep "Sample formats:"');
+				if (!empty($result)) {
+					echo explode(': ', $result)[1];
+				} else {
+					echo "Alsacap was unable to detect formats\n";
+				}
+			} else {
+				// $option == '-F': full info for all devices
+				$result = shell_exec('alsacap 2>&1');
+				echo $result;
 			}
-			else {
-				echo "Unable to detect formats\n";
-			}
+		} else {
+			echo "Device is busy, unable to detect formats\n";
 		}
-		// Full info
-		else {
-			$result = shell_exec('alsacap 2>&1');
-			echo $result;
-		}
-	}
-	else {
-		echo "Audio device busy\n" ;
 	}
 }
 
-function moode_log() {
-	echo shell_exec('cat /var/log/moode.log');
+function moodeLog() {
+	echo shell_exec('cat ' . MOODE_LOG);
 }
 
-function system_monitor() {
+function systemMonitor() {
 	echo "Gathering data...\r";
 	while(true) {
 		// Frequency
-		$cpu_freq = file_get_contents('/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq');
-		if ($cpu_freq < 1000000) {
-	        $cpu_freq = number_format((int)$cpu_freq / 1000, 0, '.', '');
-	        $cpu_freq .= ' MHz';
-		}
-		else {
-	        $cpu_freq = number_format((int)$cpu_freq / 1000000, 1, '.', '');
-	        $cpu_freq .= ' GHz';
+		$cpuFreq = file_get_contents('/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq');
+		if ($cpuFreq < 1000000) {
+	        $cpuFreq = number_format((int)$cpuFreq / 1000, 0, '.', '');
+	        $cpuFreq .= ' MHz';
+		} else {
+	        $cpuFreq = number_format((int)$cpuFreq / 1000000, 1, '.', '');
+	        $cpuFreq .= ' GHz';
 		}
 
 		// Temp
-		$cpu_temp = substr(file_get_contents('/sys/class/thermal/thermal_zone0/temp'), 0, 2);
+		$cpuTemp = substr(file_get_contents('/sys/class/thermal/thermal_zone0/temp'), 0, 2);
 
 		// CPU
-		$cpu_load = exec("top -bn 2 -d 1.0 | grep 'Cpu(s)' | tail -n 1 | awk '{print 100 - $8}'");
-		$cpu_load += exec("top -bn 2 -d 0.75 | grep 'Cpu(s)' | tail -n 1 | awk '{print 100 - $8}'");
-		$cpu_load = $cpu_load / 2;
-		$cpu_load = number_format($cpu_load,0,'.','');
+		$cpuLoad = exec("top -bn 2 -d 1.0 | grep 'Cpu(s)' | tail -n 1 | awk '{print 100 - $8}'");
+		$cpuLoad += exec("top -bn 2 -d 0.75 | grep 'Cpu(s)' | tail -n 1 | awk '{print 100 - $8}'");
+		$cpuLoad = $cpuLoad / 2;
+		$cpuLoad = number_format($cpuLoad,0,'.','');
 
 		// Memory
-		$mem_total = exec("grep MemTotal /proc/meminfo | awk '{print $2}'");
-		$mem_avail = exec("grep MemAvailable /proc/meminfo | awk '{print $2}'");
-		$mem_util = number_format(100 * (1 - ($mem_avail / $mem_total)), 0, '.', '');
+		$memTotal = exec("grep MemTotal /proc/meminfo | awk '{print $2}'");
+		$memAvail = exec("grep MemAvailable /proc/meminfo | awk '{print $2}'");
+		$memUtil = number_format(100 * (1 - ($memAvail / $memTotal)), 0, '.', '');
 
 		// Disk
-		$disk_used = exec("df -h | awk 'FNR==2 {print $5}'");
-		$disk_free = exec("df -h | grep /dev/root | awk '{print $4}'");
+		$diskUsed = exec("df -h -l | awk 'FNR==2 {print $5}'");
+		$diskFree = exec("df -h -l | grep /dev/root | awk '{print $4}'");
 
 		// PHP FPM pool count
-		$fpm_pool = exec('pgrep -c -f "php-fpm: pool www"');
+		$fpmPool = exec('pgrep -c -f "php-fpm: pool www"');
 
-		echo 'CPU: ' . $cpu_freq . ' | LOAD: ' . $cpu_load . '%' . ' | TEMP: ' . $cpu_temp . "\xB0" . 'C | RAM_USED: ' . $mem_util . '% | DISK_USED: ' . $disk_used . ' | DISK_FREE: ' . $disk_free . ' | FPM_POOL: ' . $fpm_pool . ' workers ' . "\r";
+		echo 'CPU: ' . $cpuFreq . ' | ' .
+			'Load: ' . $cpuLoad . '% / ' . $cpuTemp . 'C | ' .
+			'Memory: ' . $memUtil . '% used | ' .
+			'Disk: ' . $diskUsed . ' used / ' .	$diskFree . ' free | ' .
+			'PHP: ' . $fpmPool . " workers\r";
 	}
 }
 
-function sql_query($argv) {
-	echo shell_exec("sqlite3 " . SQLDB . " \"" . $argv[2] . "\"");
+function sqlQuery($argv) {
+	echo shell_exec("sqlite3 " . SQLDB_PATH . " \"" . $argv[2] . "\"");
 }
 
-function restart_servers() {
-	exec('sudo killall worker.php');
-	exec('sudo killall watchdog.sh');
-	exec('sudo rm /run/worker.pid');
-	exec('sudo systemctl restart php7.3-fpm');
+function restartServers() {
+	exec('sudo killall -s 9 watchdog.sh');
+	exec('sudo killall -s 9 mountmon.php >/dev/null 2>&1');
+	exec('sudo killall -s 9 mpdmon.php >/dev/null 2>&1');
+	exec('sudo killall -s 9 worker.php');
+	exec('sudo rm /var/run/worker.pid');
+	exec('sudo systemctl stop mpd2cdspvolume');
+	exec('sudo systemctl restart php' . PHP_VER . '-fpm');
 	exec('sudo systemctl restart nginx');
 	exec('sudo systemctl stop mpd');
-	exec('sudo /var/www/command/worker.php');
+	exec('sudo systemctl stop localui');
+	exec('sudo /var/www/daemon/worker.php');
 	echo "Servers restarted\n";
 }
 
-function system_info() {
-	echo "Generating info...\n";
-	echo shell_exec('sudo /var/www/command/sysinfo.sh');
+function restartRenderer($argv) {
+	$renderers = array('--bluetooth' => 'btsvc', '--airplay' => 'airplaysvc', '--spotify' => 'spotifysvc',
+		'--squeezelite' => 'slsvc', '--plexamp' => 'pasvc', '--roonbridge' => 'rbsvc');
+
+	if (!isset($argv[2])) {
+		echo 'Missing 2nd argument [renderer name]' . "\n";
+		return;
+	}
+	else if (array_key_exists($argv[2], $renderers)) {
+		$svcName = $renderers[$argv[2]];
+		$svcOn = trim(shell_exec("sqlite3 " .  SQLDB_PATH . " \"SELECT value FROM cfg_system WHERE param='" . $svcName . "'\""));
+		if ($svcOn == '0') {
+			echo 'Renderer is not currently on' . "\n";
+			return;
+		}
+	}
+	else {
+		echo 'Invalid renderer name' . "\n";
+		echo 'Valid names are: --bluetooth, --airplay, --spotify, --squeezelite, --plexamp, --roonbridge' . "\n";
+		return;
+	}
+
+	sysCmd('/var/www/util/restart-renderer.php ' . $argv[2]);
+	echo 'Renderer restarted' . "\n";
 }
 
-function tail_log() {
-	$file = '/var/log/moode.log';
-	$size = filesize($file) - 1024;
+function systemInfo() {
+	echo "Gathering info...\n";
+	echo shell_exec('sudo /var/www/util/sysinfo.sh');
+}
+
+function tailLog() {
+	$logSize = filesize(MOODE_LOG) - 1024;
+
 	while (true) {
 		clearstatcache();
-		$current_size = filesize($file);
-		if ($size == $current_size) {
-			sleep(1);
-		    continue;
+		$currentSize = filesize(MOODE_LOG);
+
+		if ($logSize != $currentSize) {
+			$fh = fopen(MOODE_LOG, "r");
+			fseek($fh, $logSize);
+
+			while ($data = fgets($fh)) {
+				echo $data;
+			}
+
+			fclose($fh);
+			$logSize = $currentSize;
 		}
 
-		$fh = fopen($file, "r");
-		fseek($fh, $size);
-
-		while ($d = fgets($fh)) {
-			echo $d;
-		}
-		fclose($fh);
-		$size = $current_size;
+		sleep(1);
 	}
 }
 
-function check_station_urls() {
+function checkStationUrls($argv) {
 	error_reporting(E_ERROR | E_PARSE);
-	$results = shell_exec("sqlite3 " . SQLDB . " \"SELECT station, name FROM cfg_radio WHERE station!='DELETED'\"");
+	$results = shell_exec("sqlite3 " . SQLDB_PATH .
+		" \"SELECT id, station, name, geo_fenced FROM cfg_radio WHERE station not in ('OFFLINE', 'zx reserved 499')\"");
 	$line = strtok($results, "\n");
-	$count = 0;
+	echo "Checking...\n";
+	echo 'Id' . "\t" . 'URL' . "\t" . 'Station' . "\n";
 	while ($line) {
-		list($url, $name) = explode('|', $line);
-		// Skip BBC geo fenced stations and the reserved 499 row
-		if (strpos($name, '- 320K') === false && strpos($name, 'zx reserved 499') === false) {
-			$tmpfile = file_get_contents($url, FALSE, NULL, 0, 1024);
-			$playable = false === $tmpfile ? '?' : 'OK';
-			if ($tmpfile == false) {
-				echo ++$count . "\t" . '?' . "\t" . $name . ' | ' . $url . "\n";
-			}
-			else {
-				echo ++$count . "\t" . 'OK' . "\t" . $name . "\n";
+		list($id, $url, $name, $geoFenced) = explode('|', $line);
+		// Skip BBC and any other geo-fenced stations
+		if ($geoFenced == 'No') {
+			$tmpFile = file_get_contents($url, FALSE, NULL, 0, 1024);
+			$playable = false === $tmpFile ? '?' : 'OK';
+			if ($tmpFile == false) {
+				echo $id . "\t" . '?' . "\t" . $name . ' | ' . $url . "\n";
+			} else if ($argv[1] == '-u') {
+				echo $id . "\t" . 'OK' . "\t" . $name . "\n";
 			}
 		}
 		$line = strtok("\n");
 	}
+}
+
+function exportAutoconfig($argv) {
+	if (posix_getuid() != 0) {
+		echo "This option requires sudo\n";
+		return;
+	}
+
+	$homeDir = '/home/' . getUserID();
+	$cfgFile = count($argv) == 3 ? $argv[2] : sprintf($homeDir . "/moodecfg-%s.ini", date('ymd_His'));
+	// NOTE: Don't print if $cfgFile contains '/tmp/' because this is just an intermediate file created by
+	// autocfg-gen.php when moodeutl -e is called by backup_manager.py
+	if (strpos($cfgFile, '/tmp/') === false) {
+		echo "Configuration settings exported to " . $cfgFile . "\n";
+	}
+	echo shell_exec('/var/www/util/autocfg-gen.php > ' . $cfgFile);
+}
+
+function importAutoconfig() {
+	if (posix_getuid() != 0) {
+		echo "This option requires sudo\n";
+		return;
+	}
+
+	echo "Importing configuration settings...\n";
+	echo shell_exec('sudo /var/www/util/autocfg-import.php');
+	echo "Reboot required\n";
+}
+
+function listAudioOverlays() {
+	$dir = '/boot/overlays/';
+	$files = scandir($dir);
+
+	foreach ($files as $file) {
+		$contents = file_get_contents($dir . $file);
+		if (strpos($contents, 'sound-dai-cells') !== false || $file == 'cirrus-wm5102.dtbo') {
+			echo $file . "\n";
+		}
+	}
+}
+
+function bluetoothReset() {
+	shell_exec("sqlite3 " .  SQLDB_PATH . " \"UPDATE cfg_system set value='0' WHERE param='btsvc'\"");
+	shell_exec("sqlite3 " .  SQLDB_PATH . " \"UPDATE cfg_system set value='0' WHERE param='pairing_agent'\"");
+	echo 'Bluetooth reset to off, reboot required' . "\n";
+}
+
+function outputDeviceCacheClear() {
+	shell_exec("sqlite3 " .  SQLDB_PATH . " \"DELETE FROM cfg_outputdev\"");
+	echo 'Output device cache cleared' . "\n";
+}
+
+function printHWParams() {
+	$trxTx = trim(shell_exec('sqlite3 ' .  SQLDB_PATH . " \"SELECT value FROM cfg_system WHERE param='multiroom_tx'\""));
+	if ($trxTx == 'On') {
+		$cardNum = sysCmd("cat /proc/asound/Loopback/pcm0p/info | awk -F': ' '/card/{print $2}'")[0];
+		$adevName = 'ALSA Loopback device';
+	} else {
+		$cardNum = trim(shell_exec('sqlite3 ' .  SQLDB_PATH . " \"SELECT value FROM cfg_system WHERE param='cardnum'\""));
+		$adevName = trim(shell_exec('sqlite3 ' .  SQLDB_PATH . " \"SELECT value FROM cfg_system WHERE param='adevname'\""));
+	}
+	echo 'card ' . $cardNum . ': ' . $adevName . "\n";
+	echo shell_exec('cat /proc/asound/card' . $cardNum . '/pcm0p/sub0/hw_params');
+}
+
+function printMPDLog() {
+	clearstatcache();
+	if (filesize(MPD_LOG)) {
+		echo shell_exec('cat ' . MPD_LOG);
+	} else {
+		echo 'The MPD log is empty or was previously cleared' . "\n";
+	}
+}
+
+function printUpdateLog() {
+	if (file_exists(UPDATER_LOG)) {
+		echo shell_exec('cat ' . UPDATER_LOG);
+	} else {
+		echo 'The update log was not found' . "\n";
+	}
+}
+
+function printMountMonLog() {
+	if (file_exists(MOUNTMON_LOG)) {
+		clearstatcache();
+		if (filesize(MOUNTMON_LOG)) {
+			echo shell_exec('cat ' . MOUNTMON_LOG);
+		} else {
+			echo 'The mount monitor log is empty or was previously cleared' . "\n";
+		}
+	} else {
+		echo 'The mount monitor log was not found' . "\n" .
+			'Turn debug logging on to generate this log' . "\n";
+	}
+}
+
+function printAutoCfgLog() {
+	if (file_exists(AUTOCFG_LOG)) {
+		echo shell_exec('cat ' . AUTOCFG_LOG);
+	} else {
+		echo 'The auto config log was not found' . "\n";
+	}
+}
+
+function printSleepInt() {
+	if (posix_getuid() != 0) {
+		echo "This option requires sudo\n";
+		return;
+	}
+
+	setSessionId();
+	session_start();
+	session_write_close();
+
+	echo $_SESSION['worker_responsiveness'] . ' | ' .
+		'worker=' . WORKER_SLEEP / 1000000 . ' | ' .
+		'waitworker=' . WAITWORKER_SLEEP / 1000000 . ' | ' .
+		'watchdog=' . WATCHDOG_SLEEP . ' | ' .
+		'mountmon=' . MOUNTMON_SLEEP . ' | ' .
+		'mpdmon=' . explode(',', $_SESSION['mpd_monitor_opt'])[0] . ' | ' .
+		'gpiobuttons=' . GPIOBUTTONS_SLEEP . "\n";
+}
+
+function detectSMBHosts() {
+	echo 'Scanning for SMB hosts...' . "\n";
+
+	// Run a few times to pick up as many hosts as possible
+	for ($i = 0; $i < 3; $i++) {
+		$output = shell_exec("nmblookup -S -T '*' | grep '*<00>' | cut -d '*' -f 1");
+	}
+
+	$line = strtok($output, "\n");
+	while ($line) {
+		$parts = explode(', ', $line);
+		$smbVersion = detectSMBVersion($parts[1]);
+		echo $parts[0] . "\t\t" . $parts[1] . "\t\t" . $smbVersion . "\n";
+
+		$line = strtok("\n");
+	}
+}
+
+// Detect highest suported SMB protocol version
+function detectSMBVersion($host) {
+	$output = trim(shell_exec("nmap -Pn " . $host . " -p 139 --script smb-protocols |grep \|"));
+	$output = explode("\n", $output);
+	$parts = explode('  ', end($output));
+
+	if (count($parts) >= 2) {
+		$version = trim($parts[2]);
+		if (str_contains($version, 'SMBv1')) {
+			$version = '1.0';
+		} else if (array_key_exists($version, SMB_VERSIONS)) {
+			$version = SMB_VERSIONS[$version];
+		} else {
+			$version = $version . ' detected but not in lookup table';
+		}
+
+		$msg = 'SMB version: ' . $version;
+	} else {
+		$msg = 'SMB version could not be detected';
+	}
+
+	return $msg;
+}
+
+function detectSMBShares($argv) {
+	if (!isset($argv[2])) {
+		echo 'Missing host or IP address' . "\n";
+		return;
+	}
+
+	echo 'Scanning SMB host...' . "\n";
+	$smbShares = shell_exec("smbclient -N -g -L 2>&1 " . $argv[2] . " | grep Disk | cut -f 2 -d '|'");
+
+	if (empty($smbShares)) {
+		echo 'No SMB shares found' . "\n";
+	} else {
+		echo $smbShares;
+	}
+}
+
+function detectNFSHosts() {
+	echo 'Scanning for NFSv4 hosts...' . "\n";
+
+	$thisIpAddr = sysCmd('hostname -I | cut -d " " -f 1')[0];
+	$subnet = substr($thisIpAddr, 0, strrpos($thisIpAddr, '.'));
+	$port = '2049'; // NFSv4
+
+	sysCmd('nmap -Pn -p ' . $port . ' ' . $subnet . '.0/24 -oG /tmp/nmap.scan >/dev/null');
+	$hosts = sysCmd('cat /tmp/nmap.scan | grep "' . $port . '/open" | cut -f 1 | cut -d " " -f 2');
+
+	foreach ($hosts as $ipAddr) {
+		$share = sysCmd('showmount --exports --no-headers ' . $ipAddr . ' | cut -d" " -f1')[0];
+		$share = empty($share) ? 'No shares found' : $share;
+		echo $ipAddr . "\t" . $share . "\n";
+	}
+
+}
+
+function detectMPDHosts() {
+	echo 'Scanning for MPD hosts...' . "\n";
+
+	$thisIpAddr = sysCmd('hostname -I | cut -d " " -f 1')[0];
+	$subnet = substr($thisIpAddr, 0, strrpos($thisIpAddr, '.'));
+	$port = '6600'; // MPD
+
+	sysCmd('nmap -Pn -p ' . $port . ' ' . $subnet . '.0/24 -oG /tmp/nmap.scan >/dev/null');
+	$hosts = sysCmd('cat /tmp/nmap.scan | grep "' . $port . '/open" | cut -f 1 | cut -d " " -f 2');
+
+	foreach ($hosts as $ipAddr) {
+		echo $ipAddr . "\n";
+	}
+}
+
+function setSessionId() {
+	$sessionId = trim(shell_exec("sqlite3 " . SQLDB_PATH . " \"SELECT value FROM cfg_system WHERE param='sessionid'\""));
+	session_id($sessionId);
+}
+
+function getUserID() {
+	$result = sysCmd('ls /home/');
+	return $result[0];
 }

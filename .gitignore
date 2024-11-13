@@ -1,5 +1,4 @@
 # Mac OS resource fork files
-
 ._*
 .Trashes
 ._.Trashes
@@ -12,3 +11,9 @@
 .TemporaryItems
 ._.TemporaryItems
 __MACOSX
+# Other
+/build
+/node_modules
+/www/index.html
+/logs
+/other/camilladsp/camilladsp.dev/*

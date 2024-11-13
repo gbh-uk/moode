@@ -1,0 +1,113 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Copyright 2022 @Nutul (albertonarduzzi@gmail.com)
+*/
+
+/*
+ * On-screen keyboard. - @Nutul (albertonarduzzi@gmail.com
+*/
+
+.osk-keys {
+    --keyCOLS: 11;
+    --keyROWS: 5;
+    --keyW: 7.8vmin;
+    --keyH: 7vmin;
+    --keyFrame: 5px;
+    --keyWspe: 11vmin;
+    --keyWnum: calc((var(--keyCOLS) * var(--keyW) - var(--keyWspe)) / 10);
+}
+
+.osk-keys {
+    position: fixed;
+    overflow: visible;
+    z-index: 20000;
+    bottom: 0;
+    left: 50%;
+    width: calc(var(--keyCOLS) * (var(--keyW) + var(--keyFrame)));
+    height: calc(var(--keyROWS) * (var(--keyH) + var(--keyFrame)) + var(--keyH) / 2);
+    border-width: 1px 1px 0 1px;
+    border-color: var(--adapttext);
+    border-style: solid;
+    padding: 0 var(--keyFrame) var(--keyFrame) 0;
+    border-top-left-radius: 5px;
+    border-top-right-radius: 0;
+    background-color: inherit;
+    color: var(--adapttext);
+    transform: scaleY(1) translate(-50%);
+    transition: transform 0ms linear,
+                height 200ms ease-in;
+}
+
+.osk-row {
+    display: flex;
+}
+
+.osk-key {
+    width: var(--keyW);
+    height: var(--keyH);
+    text-align: center;
+    font-size: 4.5vmin;
+    line-height: var(--keyH);
+    border: 1px solid;
+    border-color: inherit;
+    margin: var(--keyFrame) 0 0 var(--keyFrame);
+    border-radius: 5px;
+    border-bottom-left-radius: calc(var(--keyW) / 4);
+    border-bottom-right-radius: calc(var(--keyW) / 4);
+    box-sizing: border-box;
+    color: inherit;
+    background-color: inherit;
+    cursor: pointer;
+}
+
+.osk-number {
+    width: var(--keyWnum);
+}
+
+.osk-special {
+    font-family: 'Font Awesome 6 Pro';
+    width: var(--keyWspe);
+}
+
+.osk-inc, .osk-dec,
+.osk-max, .osk-min {
+    font-family: 'Font Awesome 6 Pro';
+}
+
+.osk-enter {
+    writing-mode: vertical-lr;
+    text-orientation: sideways;
+}
+
+.osk-space {
+    width: calc(var(--keyCOLS) * (var(--keyW) + var(--keyFrame)) - (3 * var(--keyWspe)));
+}
+
+.osk-close {
+    position: absolute;
+    top: calc(var(--keyH) * -1 - var(--keyFrame));
+    right: -1px;
+    border-radius: 0;
+    border-top-left-radius: calc(var(--keyH)/4);
+    border-top-right-radius: calc(var(--keyH)/4);
+    border-bottom: 0;
+}
+
+.osk-engaged,
+.osk-pressed {
+    background-color: var(--accentxts);
+    color: #eee;
+    border-color: #eee;
+}
+
+.osk-void {
+    opacity: 0.3;
+    cursor: default;
+}
+
+.osk-hidden {
+    height: 0px;
+    transform: scaleY(0) translate(-50%);
+    transition: height 200ms ease-in,
+                transform 0ms linear 200ms;
+}

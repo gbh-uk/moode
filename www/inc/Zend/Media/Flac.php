@@ -44,11 +44,6 @@ require_once 'Zend/Io/Reader.php';
  * @version    $Id: Flac.php 251 2011-06-13 15:41:51Z svollbehr $
  */
 
-/**
- * 2019-04-12 TC moOde 5.0
- *
- */
-
 final class Zend_Media_Flac
 {
     /** The streaminfo metadata block */
@@ -71,6 +66,9 @@ final class Zend_Media_Flac
 
     /** The picture metadata block */
     const PICTURE        = 6;
+
+    /** The invalid metadata block */
+    const INVALID	 = 127;
 
     /** @var Zend_Io_Reader */
     private $_reader;
@@ -118,9 +116,6 @@ final class Zend_Media_Flac
             throw new Zend_Media_Flac_Exception('Not a valid FLAC bitstream');
         }
 
-		// r44d failsafe to prevent corrupt header from causing endless loop
-		$count = 1;
-
         while (true) {
             $offset = $this->_reader->getOffset();
             $last = ($tmp = $this->_reader->readUInt8()) >> 7 & 0x1;
@@ -166,18 +161,22 @@ final class Zend_Media_Flac
             default:
                 // break intentionally omitted
             }
+
+            // Failsafe to prevent corrupt header from causing endless loop
+            // Exit loop if invalid type was found
+            if($type == self::INVALID) {
+                break;
+            }
+            // Exit loop if next offset is out of file
+            else if($this->_reader->getSize() < ($offset + 4 /* header */ + $size)) {
+                break;
+            }
             $this->_reader->setOffset($offset + 4 /* header */ + $size);
 
             // Jump off the loop if we reached the end of metadata blocks
             if ($last === 1) {
                 break;
             }
-
-			// r44d exit loop if > 7 iterations
-			$count++;
-			if ($count > 7) {
-                break;
-			}
         }
     }
 

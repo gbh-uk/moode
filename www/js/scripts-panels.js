@@ -1,81 +1,123 @@
 /*!
- * moOde audio player (C) 2014 Tim Curtis
- * http://moodeaudio.org
- *
- * tsunamp player ui (C) 2013 Andrea Coiutti & Simone De Gregori
- * http://www.tsunamp.com
- *
- * This Program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 3, or (at your option)
- * any later version.
- *
- * This Program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- *
- * 2020-MM-DD TC moOde 6.6.0
- *
- */
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Copyright 2014 The moOde audio player project / Tim Curtis
+ * Copyright 2013 The tsunamp player ui / Andrea Coiutti & Simone De Gregori
+*/
+
 jQuery(document).ready(function($) { 'use strict';
+    // Call $.pnotify if created by backend
+    if( window.ui_notify != undefined ) {
+        ui_notify();
+	}
+
     GLOBAL.scriptSection = 'panels';
-	$('#config-back').hide();
+
+	$('#config-back, #config-home').hide();
 	$('#config-tabs').css('display', 'none');
-	$('#menu-bottom').css('display', 'flex');
+	$('#panel-footer').css('display', 'flex');
+
+    // NOTE: This is a workaround for the time knob progress slider not updating correctly when the window is hidden
+    document.addEventListener("visibilitychange", visChange);
+    function visChange() {
+        //console.log('visChange()', document.visibilityState);
+        if (document.visibilityState == 'visible') {
+            // This will cause MPD idle timeout and subsequent renderUI() which will refresh the time eknob using current data
+    		sendMpdCmd('subscribe dumy_channel');
+        }
+    }
+
+    // Resize thumbs on window resize
+	$(window).bind('resize', function(e){
+		UI.mobile = $(window).width() <= 480 ? true : false;
+		getThumbHW();
+	});
 
 	// Compensate for Android popup kbd changing the viewport, also for notch phones
 	$("meta[name=viewport]").attr("content", "height=" + $(window).height() + ", width=" + $(window).width() + ", initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover");
 	// Store device pixel ratio
-    $.post('command/moode.php?cmd=updcfgsystem', {'library_pixelratio': window.devicePixelRatio});
+    $.post('command/cfg-table.php?cmd=upd_cfg_system', {'library_pixelratio': window.devicePixelRatio});
 
-	// store scrollbar width (it will be 0 for overlay scrollbars and > 0 for always on scrollbars
+	// Store scrollbar width (it will be 0 for overlay scrollbars and > 0 for always on scrollbars
 	var hiddenDiv = $("<div style='position:absolute; top:-10000px; left:-10000px; width:100px; height:100px; overflow:scroll;'></div>").appendTo("body");
-	var sbw = hiddenDiv.width() - hiddenDiv[0].clientWidth;
-	$("body").get(0).style.setProperty("--sbw", sbw + 'px');
-	//console.log(hiddenDiv.width() - hiddenDiv[0].clientWidth + 'px');
+	GLOBAL.sbw = hiddenDiv.width() - hiddenDiv[0].clientWidth;
+	$("body").get(0).style.setProperty("--sbw", GLOBAL.sbw + 'px');
+    //console.log(hiddenDiv.width() - hiddenDiv[0].clientWidth + 'px');
 
-	// load current cfg
-    $.getJSON('command/moode.php?cmd=read_cfgs', function(result) {
-    	SESSION.json = result['cfg_system'];
-    	THEME.json = result['cfg_theme'];
-    	RADIO.json = result['cfg_radio'];
+    // Enable custom scroll bars unless overlay scroll bars are enabled on the platform (scroll bar width sbw = 0)
+    if (GLOBAL.sbw) {
+        $('body').addClass('custom-scrollbars');
+    }
 
-        // Display viewport size for debugging by re-using the pkgid_suffix col. It's normaly used to test in-place update packages.
+    // Only show Prefs transparency options if alphablend != 1.00
+    var target = document.querySelector('#alpha-blend span')
+    var observer = new MutationObserver(mutate);
+    var config = {characterData: true, attributes: false, childList: true, subtree: false};
+    observer.observe(target, config);
+    function mutate(mutations) {
+        mutations.forEach(function(mutation) {
+            if ($('#alpha-blend span').text() != '1.00') {
+                $('#cover-options').css('display', 'block');
+            } else {
+                $('#cover-options').css('display', '');
+            }
+        });
+    }
+
+	// Load current cfg
+    $.getJSON('command/cfg-table.php?cmd=get_cfg_tables', function(data) {
+    	SESSION.json = data['cfg_system'];
+    	THEME.json = data['cfg_theme'];
+    	RADIO.json = data['cfg_radio'];
+
+        // Check for native lazy load support in Browser
+        // @bitkeeper contribution: https://github.com/moode-player/moode/pull/131
+        if ('loading' in HTMLImageElement.prototype && SESSION.json['native_lazyload'] == 'Yes') {
+            GLOBAL.nativeLazyLoad = true;
+        }
+
+        // DEBUG: Display viewport size and pixel ratio by re-using the pkgid_suffix param
         if (SESSION.json['pkgid_suffix'] == 'viewport') {
-            notify('viewport', window.innerWidth + 'x' + window.innerHeight, 10000);
+            notify(NOTIFY_TITLE_INFO, 'viewport', window.innerWidth + 'x' + window.innerHeight + ', P/R=' + window.devicePixelRatio, NOTIFY_DURATION_MEDIUM);
         }
 
     	// Set currentView global
     	currentView = SESSION.json['current_view'];
 
+    	// Detect mobile
+    	UI.mobile = $(window).width() < 480 ? true : false;
+        //console.log('window: ' + $(window).width() + 'x' + $(window).height());
+        //console.log('viewport: ' + window.innerWidth + 'x' + window.innerHeight);
+
         // Set thumbnail columns
-        setLibraryThumbnailCols(SESSION.json['library_thumbnail_columns'].substring(0, 1));
+        getThumbHW();
 
         // Initiate loads
-        loadLibrary();
-        mpdDbCmd('lsinfo', '');
-        mpdDbCmd('lsinfo_radio', 'RADIO');
+        renderRadioView(false); // False = don't run lazylode() since it's going to be run as part of makeActive downstream
+        loadLibrary(); // Tag and Album views
+        renderPlaylistView();
+        $.getJSON('command/music-library.php?cmd=lsinfo', {'path': ''}, function(data) {
+            renderFolderView(data, '');
+        });
 
-    	// radio
+        // Library item positions
+    	// Radio view
     	UI.radioPos = parseInt(SESSION.json['radio_pos']);
-    	// library
+    	// Tag/Album view
     	var tmpStr = SESSION.json['lib_pos'].split(',');
-    	UI.libPos[0] = parseInt(tmpStr[0]); // album list
-    	UI.libPos[1] = parseInt(tmpStr[1]); // album cover
-    	UI.libPos[2] = parseInt(tmpStr[2]); // artist list
-
-    	// mobile
-    	UI.mobile = $(window).width() < 480 ? true : false; /* mobile-ish */
+    	UI.libPos[0] = parseInt(tmpStr[0]); // Album list
+    	UI.libPos[1] = parseInt(tmpStr[1]); // Album cover
+    	UI.libPos[2] = parseInt(tmpStr[2]); // Artist list
+        // Playlist view
+    	UI.playlistPos = parseInt(SESSION.json['playlist_pos']);
+        //console.log('scripts-panels: UI.radioPos', UI.radioPos);
+        //console.log('scripts-panels: UI.libPos', UI.libPos);
+        //console.log('scripts-panels: UI.playlistPos', UI.playlistPos);
 
         // Set volume knob max
         $('#volume, #volume-2').attr('data-max', SESSION.json['volume_mpd_max']);
         GLOBAL.mpdMaxVolume = parseInt(SESSION.json['volume_mpd_max']);
 
-    	// set the font size
+    	// Set font size
     	setFontSize();
 
         // Show/hide first use help
@@ -83,44 +125,28 @@ jQuery(document).ready(function($) { 'use strict';
         if (firstUseHelp[0] == 'y') {$('#playback-firstuse-help').css('display', 'block');}
         if (firstUseHelp[1] == 'y') {$('#playbar-firstuse-help').css('display', 'block');}
 
-    	// compile the ignore articles regEx
+    	// Compile the ignore articles regEx
     	if (SESSION.json['library_ignore_articles'] != 'None') {
     		GLOBAL.regExIgnoreArticles = new RegExp('^(' + SESSION.json['library_ignore_articles'].split(',').join('|') + ') (.*)', 'gi');
     		//console.log (GLOBAL.regExIgnoreArticles);
     	}
 
-    	// touch device detection
+    	// Detect touch device
     	if (!('ontouchstart' in window || navigator.msMaxTouchPoints)) {
     		$('body').addClass('no-touch');
     	}
 
-    	// set theme
+    	// Set theme
     	themeColor = str2hex(THEME.json[SESSION.json['themename']]['tx_color']);
     	themeBack = 'rgba(' + THEME.json[SESSION.json['themename']]['bg_color'] + ',' + SESSION.json['alphablend'] +')';
     	themeMcolor = str2hex(THEME.json[SESSION.json['themename']]['tx_color']);
     	if (SESSION.json['adaptive'] == "No") {document.body.style.setProperty('--adaptmbg', themeBack);}
-    	blurrr == true ? themeOp = .85 : themeOp = .95;
-
-    	// only display transparency related theme options if alphablend is < 1
-    	$('#alpha-blend').on('DOMSubtreeModified',function(){
-    		if ($('#alpha-blend span').text() < 1) {
-    			$('#cover-options').show();
-    		}
-            else {
-    			$('#cover-options').css('display', '');
-    		}
-    	});
-
-    	/*themeMback = 'rgba(' + THEME.json[SESSION.json['themename']]['bg_color'] + ',' + themeOp +')';
-    	tempcolor = splitColor($('.dropdown-menu').css('background-color'));*/
+        //themeOp = blurrr == true ? .85 : .95;
+        themeOp = 0.75; // A bit less opacity for menu background
     	tempcolor = (THEME.json[SESSION.json['themename']]['mbg_color']).split(",")
     	themeMback = 'rgba(' + tempcolor[0] + ',' + tempcolor[1] + ',' + tempcolor[2] + ',' + themeOp + ')';
-
     	accentColor = themeToColors(SESSION.json['accent_color']);
     	document.body.style.setProperty('--themetext', themeMcolor);
-    	var radio1 = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='30' height='30'><circle fill='%23" + accentColor.substr(1) + "' cx='14' cy='14.5' r='11.5'/></svg>";
-    	var test = getCSSRule('.toggle .toggle-radio');
-    	test.style.backgroundImage='url("' + radio1 + '")';
     	adaptColor = themeColor;
     	adaptBack = themeBack;
     	adaptMhalf = themeMback;
@@ -130,6 +156,7 @@ jQuery(document).ready(function($) { 'use strict';
     	abFound = false;
     	showMenuTopW = false
     	showMenuTopR = false
+        GLOBAL.npIcon = getKeyOrValue('value', SESSION.json['show_npicon']);
     	setColors();
 
         $('.ralbum').html('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path d="M475.31 364.144L288 256l187.31-108.144c5.74-3.314 7.706-10.653 4.392-16.392l-4-6.928c-3.314-5.74-10.653-7.706-16.392-4.392L272 228.287V12c0-6.627-5.373-12-12-12h-8c-6.627 0-12 5.373-12 12v216.287L52.69 120.144c-5.74-3.314-13.079-1.347-16.392 4.392l-4 6.928c-3.314 5.74-1.347 13.079 4.392 16.392L224 256 36.69 364.144c-5.74 3.314-7.706 10.653-4.392 16.392l4 6.928c3.314 5.74 10.653 7.706 16.392 4.392L240 283.713V500c0 6.627 5.373 12 12 12h8c6.627 0 12-5.373 12-12V283.713l187.31 108.143c5.74 3.314 13.079 1.347 16.392-4.392l4-6.928c3.314-5.74 1.347-13.079-4.392-16.392z"/></svg>');
@@ -138,18 +165,16 @@ jQuery(document).ready(function($) { 'use strict';
         engineMpd();
         engineCmd();
 
-        /*
         // NOTE: We may use this in the future
-        $.getJSON('command/moode.php?cmd=clientip', function(result) {
-            UI.clientIP = result;
-            console.log(UI.clientIP);
+        $.getJSON('command/system.php?cmd=get_client_ip', function(data) {
+            GLOBAL.thisClientIP = data;
+            debugLog('This client IP: ' + GLOBAL.thisClientIP);
         });
-        */
 
-        // setup pines notify
+        // Setup pines notify
         $.pnotify.defaults.history = false;
 
-    	// show button bars
+    	// Show button bars
     	if (!UI.mobile) {
     		$('#playbtns, #togglebtns').show();
     	}
@@ -157,70 +182,118 @@ jQuery(document).ready(function($) { 'use strict';
     	// Screen saver backdrop style
     	if (SESSION.json['scnsaver_style'] == 'Animated') {
     		$('#ss-style').css('background', '');
-    		$('#ss-style').css('animation', 'colors2 60s infinite');
     		$('#ss-style, #ss-backdrop').css('display', '');
-    	}
-        else if (SESSION.json['scnsaver_style'] == 'Theme') {
+            $('#ss-style').css('animation', 'colors2 60s infinite');
+    	} else if (SESSION.json['scnsaver_style'] == 'Theme') {
     		$('#ss-style, #ss-backdrop').css('display', 'none');
-    	}
-    	else if (SESSION.json['scnsaver_style'] == 'Gradient (Linear)') {
-    		$('#ss-style').css('animation', 'initial');
-    		$('#ss-style').css('background', 'linear-gradient(to bottom, rgba(0,0,0,0.15) 0%,rgba(0,0,0,0.60) 25%,rgba(0,0,0,0.75) 40%, rgba(0,0,0,.8) 60%, rgba(0,0,0,.9) 100%)');
+    	} else {
+            $('#ss-style').css('animation', 'initial');
     		$('#ss-style, #ss-backdrop').css('display', '');
-    	}
-        else if (SESSION.json['scnsaver_style'] == 'Gradient (Radial)') {
-    		$('#ss-style').css('animation', 'initial');
-    		$('#ss-style').css('background', 'radial-gradient(circle at 50% center, rgba(64, 64, 64, .5) 5%, rgba(0, 0, 0, .85) 60%)');
-    		$('#ss-style, #ss-backdrop').css('display', '');
-    	}
-    	else if (SESSION.json['scnsaver_style'] == 'Pure Black') {
-    		$('#ss-style').css('animation', 'initial');
-    		$('#ss-style').css('background', 'rgba(0,0,0,1)');
-    		$('#ss-style, #ss-backdrop').css('display', '');
+            if (SESSION.json['scnsaver_style'] == 'Gradient (Linear)') {
+                $('#ss-style').css('background', 'linear-gradient(to bottom, rgba(0,0,0,0.15) 0%,rgba(0,0,0,0.60) 25%,rgba(0,0,0,0.75) 40%, rgba(0,0,0,.8) 60%, rgba(0,0,0,.9) 100%)');
+            } else if (SESSION.json['scnsaver_style'] == 'Gradient (Radial)') {
+                $('#ss-style').css('background', 'radial-gradient(circle at 50% center, rgba(64, 64, 64, .5) 5%, rgba(0, 0, 0, .85) 60%)');
+            } else if (SESSION.json['scnsaver_style'] == 'Pure Black') {
+                $('#ss-style').css('background', 'rgba(0,0,0,1)');
+            }
     	}
 
-     	// set clock radio icon state
+        // Reset screen saver timeout global
+        if (SESSION.json['scnsaver_timeout'] != 'Never') {
+            $.post('command/playback.php?cmd=reset_screen_saver');
+        }
+
+     	// Set clock radio icon state
     	if (SESSION.json['clkradio_mode'] == 'Clock Radio' || SESSION.json['clkradio_mode'] == 'Sleep Timer') {
     		$('#clockradio-icon').removeClass('clockradio-off')
     		$('#clockradio-icon').addClass('clockradio-on')
-    	}
-    	else {
+    	} else {
     		$('#clockradio-icon').removeClass('clockradio-on')
     		$('#clockradio-icon').addClass('clockradio-off')
     	}
 
-    	// set volume control state
-    	if (SESSION.json['mpdmixer'] == 'disabled') {
+    	// Set volume control state
+    	if (SESSION.json['mpdmixer'] == 'none') {
+            // Fixed (0dB)
     		disableVolKnob();
-    		SESSION.json['volknob'] = '0';
-    		SESSION.json['volmute'] = '0';
-            $.post('command/moode.php?cmd=updcfgsystem', {'volknob': '0', 'volmute': '0'});
-    	}
-    	else {
+            SESSION.json['volmute'] = '0';
+            $.post('command/cfg-table.php?cmd=upd_cfg_system', {'volmute': '0'});
+    	} else {
     		$('#volume').val(SESSION.json['volknob']);
     		$('#volume-2').val(SESSION.json['volknob']);
     		$('.volume-display').css('opacity', '');
     		$('.volume-display div').text(SESSION.json['volknob']);
     	}
 
-        // Show or hide Play history item on system menu
+        // Show/hide Play history on main menu
         if (SESSION.json['playhist'] == 'Yes') {
             $('#playhistory-hide').css('display', 'block');
-        }
-        else {
+        } else {
             $('#playhistory-hide').css('display', 'none');
+        }
+        // Show/hide Bluetoioth on main menu
+        if (SESSION.json['btsvc'] == '1') {
+            $('#bluetooth-hide').css('display', 'block');
+        } else {
+            $('#bluetooth-hide').css('display', 'none');
         }
 
         // Tag view header text
+        $('#genreheader > div').html(SESSION.json['library_tagview_genre']);
         $('#tagview-header-text').text('Albums' +
             ((SESSION.json['library_tagview_sort'] == 'Album' || SESSION.json['library_tagview_sort'] == 'Album/Year') ?
             '' : ' by ' + SESSION.json['library_tagview_sort']));
-
-
+        // Artists column header
+        var artistHeader = SESSION.json['library_tagview_artist'].replace('Artist', 'Artists');
+        $('#artistheader > div').html(artistHeader);
         // Hide alphabits index if indicated
         if (SESSION.json['library_albumview_sort'] == 'Year') {
-            $('#index-albums, #index-albumcovers').hide();
+            $('#index-albums').hide();
+            $('#index-albumcovers').attr('style', 'display:none!important');
         }
+
+        // Stream Recorder
+        if (SESSION.json['feat_bitmask'] & FEAT_RECORDER) {
+            $('#radio-manager-stream-recorder').show();
+            if (SESSION.json['recorder_status'] != 'Not installed') {
+                $('#stream-recorder-options').show();
+                $('#context-menu-stream-recorder').show();
+                if (SESSION.json['recorder_status'] == 'On') {
+                    $('.playback-context-menu i').addClass('recorder-on');
+                    $('#menu-check-recorder').css('display', 'inline');
+                }
+                else {
+                    $('.playback-context-menu i').removeClass('recorder-on');
+                    $('#menu-check-recorder').css('display', 'none');
+                }
+            }
+        }
+
+        // Multiroom Sender context menu item
+        if (SESSION.json['multiroom_tx'] == 'On') {
+            $('#context-menu-multiroom-sender').show();
+            $('#updater-notification').css('left', '54%');
+        }
+
+        // CoverView toggle
+        if (SESSION.json['localui'] == '1') {
+            $('#context-menu-coverview-toggle').show();
+        }
+
+        // Software update
+        if (SESSION.json['updater_auto_check'] == 'On' && SESSION.json['updater_available_update'].substring(0, 7) == 'Release') {
+            if (currentView.indexOf('playback') != -1) {
+                $('#updater-notification').show();
+            }
+        }
+        $('#updater-notification').click(function(e) {
+            if (SESSION.json['updater_available_update'].substring(0, 7) == 'Release') {
+                var msg = SESSION.json['updater_available_update'] + 'This notification can be turned off in System Config';
+                notify(NOTIFY_TITLE_INFO, 'updater', msg, NOTIFY_DURATION_MEDIUM);
+            } else {
+                $('#updater-notification').hide();
+            }
+        });
 
     	// Load swipe handler for top columns in library (mobile)
     	if (UI.mobile && SESSION.json['library_show_genres'] == 'Yes') {
@@ -245,76 +318,74 @@ jQuery(document).ready(function($) { 'use strict';
         // Reset active state
         $('#folder-panel, #radio-panel').removeClass('active');
 
-        // Full screen playback
+        // Playback
     	if (currentView.indexOf('playback') != -1) {
     		$('#playback-panel').addClass('active');
-    		$(window).scrollTop(0); // make sure it's scrolled to top
+    		$(window).scrollTop(0);
+
     		if (UI.mobile) {
-    			$('#container-playlist').css('visibility','hidden');
+    			$('#container-playqueue').css('visibility','hidden');
     			$('#playback-controls').show();
     		}
             else {
-    			setTimeout(function() {
-    		        customScroll('pl', parseInt(MPD.json['song']));
-    			}, SCROLLTO_TIMEOUT);
+		        customScroll('playqueue', parseInt(MPD.json['song']));
     		}
-    		$('#menu-bottom').hide();
+
+            $('#panel-footer').hide();
+
+            // Multiroom sender header icon
+            SESSION.json['multiroom_tx'] == 'On' ? $('#multiroom-sender').show() : $('#multiroom-sender').hide();
     	}
-        // Library with Playbar
+        // Library
     	else {
-    		$('#menu-bottom, #viewswitch').css('display', 'flex');
+    		$('#panel-footer, #viewswitch').css('display', 'flex');
     		$('#playback-switch').hide();
     	}
 
         // Radio view
     	if (currentView == 'radio') {
-    		makeActive('.radio-view-btn','#radio-panel', currentView);
-
-    		setTimeout(function() {
-    			if (UI.radioPos >= 0) {
-    				customScroll('radio', UI.radioPos, 200);
-    			}
-    		}, SCROLLTO_TIMEOUT);
+    		makeActive('.radio-view-btn', '#radio-panel', currentView);
     	}
         // Folder view
     	else if (currentView == 'folder') {
-    		makeActive('.folder-view-btn','#folder-panel', 'folder');
-    		mpdDbCmd('lsinfo', '');
+    		makeActive('.folder-view-btn', '#folder-panel', currentView);
     	}
         // Tag view
     	else if (currentView == 'tag'){
-    		makeActive('.tag-view-btn','#library-panel', 'tag');
+    		makeActive('.tag-view-btn', '#library-panel', currentView);
             SESSION.json['library_show_genres'] == 'Yes' ? $('#top-columns').removeClass('nogenre') : $('#top-columns').addClass('nogenre');
-
-            if (!GLOBAL.libRendered) {
-    			//loadLibrary();
-    		}
-
-    		setTimeout(function() {
-    			if (UI.libPos[0] >= 0) {
-    			    $('#albumsList .lib-entry').removeClass('active');
-    				$('#albumsList .lib-entry').eq(UI.libPos[0]).addClass('active');
-    				customScroll('albums', UI.libPos[0], 200);
-    				$('#albumsList .lib-entry').eq(UI.libPos[0]).click();
-    			}
-    		}, SCROLLTO_TIMEOUT);
     	}
     	// Album view
     	else if (currentView == 'album'){
-    		makeActive('.album-view-btn','#library-panel', 'album');
-
-            if (!GLOBAL.libRendered) {
-    			//loadLibrary();
-    		}
-
-    		setTimeout(function() {
-    			if (UI.libPos[1] >= 0) { // lib entry clicked or random album
-    			    $('#albumcovers .lib-entry').removeClass('active');
-    				$('#albumcovers .lib-entry').eq(UI.libPos[1]).addClass('active');
-    				customScroll('albumcovers', UI.libPos[1], 0);
-    			}
-    		}, SCROLLTO_TIMEOUT);
+    		makeActive('.album-view-btn', '#library-panel', currentView);
     	}
+        // Playlist view
+    	else if (currentView == 'playlist') {
+    		makeActive('.playlist-view-btn', '#playlist-panel', currentView);
+    	}
+
+        // CoverView auto-display
+        //notify(NOTIFY_TITLE_INFO, 'debug', GLOBAL.userAgent, NOTIFY_DURATION_MEDIUM);
+        if (GLOBAL.chromium && SESSION.json['localui'] == '1' && SESSION.json['auto_coverview'] == '-on') {
+            notify(NOTIFY_TITLE_INFO, 'auto_coverview', 'will be activating in ' + NOTIFY_DURATION_DEFAULT + ' seconds.', NOTIFY_DURATION_DEFAULT);
+            setTimeout(function() {
+                screenSaver('scnactive1');
+            }, NOTIFY_DURATION_DEFAULT * 1000);
+        }
+
+        // On-screen keyboard
+        if (GLOBAL.chromium && SESSION.json['on_screen_kbd'] == 'On') {
+            initializeOSK();
+        }
+
+        // First boot checks
+        if (SESSION.json['user_id'] == NO_USERID_DEFINED) {
+             // No userid defined when image was created
+            notify(NOTIFY_TITLE_ERROR, 'userid_error', NOTIFY_MSG_NO_USERID, NOTIFY_DURATION_INFINITE);
+        } else if (SESSION.json['first_use_help'].includes('y')) {
+            // First use welcome notification
+            notify(NOTIFY_TITLE_INFO, 'firstuse_welcome', NOTIFY_MSG_WELCOME, NOTIFY_DURATION_INFINITE);
+        }
     });
 
 	//
@@ -324,48 +395,35 @@ jQuery(document).ready(function($) { 'use strict';
     // Radio view
 	$('.radio-view-btn').click(function(e){
         makeActive('.radio-view-btn','#radio-panel','radio');
-        setTimeout(function() {
-			if (UI.radioPos >= 0) {
-				customScroll('radio', UI.radioPos, 0);
-			}
-		}, SCROLLTO_TIMEOUT);
+	});
+    // Playlist view
+	$('.playlist-view-btn').click(function(e){
+        makeActive('.playlist-view-btn','#playlist-panel','playlist');
 	});
     // Folder view
 	$('.folder-view-btn').click(function(e){
 		makeActive('.folder-view-btn','#folder-panel','folder');
-		mpdDbCmd('lsinfo', '');
 	});
     // Tag view
 	$('.tag-view-btn').click(function(e){
 		makeActive('.tag-view-btn','#library-panel','tag');
         SESSION.json['library_show_genres'] == 'Yes' ? $('#top-columns').removeClass('nogenre') : $('#top-columns').addClass('nogenre');
+	    $('#albumsList .lib-entry').removeClass('active');
 
-		if (!GLOBAL.libRendered) {
-			loadLibrary();
+		if (UI.libPos[0] == -2) { // Lib headers clicked
+			$('#lib-album').scrollTo(0, 0);
+			$('#lib-artist').scrollTo(0, 0);
+			UI.libPos[0] = -1;
+			storeLibPos(UI.libPos);
 		}
-
-		setTimeout(function() {
-			if (UI.libPos[0] >= 0) { // Lib entry clicked or random album
-			    $('#albumsList .lib-entry').removeClass('active');
-				$('#albumsList .lib-entry').eq(UI.libPos[0]).addClass('active');
-				customScroll('albums', UI.libPos[0], 0);
-			}
-			else if (UI.libPos[0] == -2) { // Lib headers clicked
-			    $('#albumsList .lib-entry').removeClass('active');
-				$('#lib-album').scrollTo(0, 0);
-				$('#lib-artist').scrollTo(0, 0);
-				UI.libPos[0] = -1;
-				storeLibPos(UI.libPos);
-			}
-			else if (UI.libPos[0] == -3) { // Lib search performed
-			    $('#albumsList .lib-entry').removeClass('active');
-				$('#lib-album').scrollTo(0, 0);
-				$('#lib-coverart-img').html('<a href="#notarget" data-toggle="context" data-target="#context-menu-lib-all">' + '<img class="lib-coverart" ' + 'src="' + UI.defCover + '"></a>');
-				$('#lib-albumname, #lib-artistname, #lib-albumyear, #lib-numtracks, #songsList').html('');
-				UI.libPos[0] = -1;
-				storeLibPos(UI.libPos);
-			}
-		}, SCROLLTO_TIMEOUT);
+		else if (UI.libPos[0] == -3) { // Lib search performed
+		    $('#albumsList .lib-entry').removeClass('active');
+			$('#lib-album').scrollTo(0, 0);
+			$('#lib-coverart-img').html('<a href="#notarget" data-toggle="context" data-target="#context-menu-lib-album">' + '<img class="lib-coverart" ' + 'src="' + DEFAULT_ALBUM_COVER + '"></a>');
+            $('#lib-collection-stats, #songsList').html('');
+			UI.libPos[0] = -1;
+			storeLibPos(UI.libPos);
+		}
 	});
     // Album view
 	$('.album-view-btn').click(function(e){
@@ -376,85 +434,63 @@ jQuery(document).ready(function($) { 'use strict';
 		if (!GLOBAL.libRendered) {
 			loadLibrary();
 		}
-
-		setTimeout(function() {
-			if (UI.libPos[1] >= 0) { // Lib entry clicked or random album
-			    $('#albumcovers .lib-entry').removeClass('active');
-				$('#albumcovers .lib-entry').eq(UI.libPos[1]).addClass('active');
-				customScroll('albumcovers', UI.libPos[1], 0);
-			}
-			else if (UI.libPos[1] == -2 || UI.libPos[1] == -3) { // Lib headers clicked or search performed
-			    $('#albumcovers .lib-entry').removeClass('active');
-				$('#lib-albumcover').scrollTo(0, 0);
-				UI.libPos[1] = -1;
-				storeLibPos(UI.libPos);
-			}
-		}, SCROLLTO_TIMEOUT);
+	    $('#albumcovers .lib-entry').removeClass('active');
+		if (UI.libPos[1] == -2 || UI.libPos[1] == -3) { // Lib headers clicked or search performed
+			$('#lib-albumcover').scrollTo(0, 0);
+			UI.libPos[1] = -1;
+			storeLibPos(UI.libPos);
+		}
 	});
 
-	// mute toggle
+	// Mute toggle
 	$('.volume-display').on('click', function(e) {
-		if (SESSION.json['mpdmixer'] == 'disabled') {
+		if (SESSION.json['mpdmixer'] == 'none') {
 			return false;
 		}
 		volMuteSwitch();
 	});
 
 	// Volume control popup btn for Playbar
-	//$('.volume-popup-btn').live('click', function(e) {
     $(document).on('click', '.volume-popup-btn', function(e) {
 		if ($('#volume-popup').css('display') == 'block') {
 			$('#volume-popup').modal('toggle');
 		}
 		else {
-			//$('.volume-display').css('margin-top', '-16px');
-			if (SESSION.json['mpdmixer'] == 'disabled') {
+			if (SESSION.json['mpdmixer'] == 'none') {
 				$('.volume-display').css('opacity', '.3');
 			}
 			$('#volume-popup').modal();
 		}
 	});
 
-	// playback button handlers
+	// Playback button handlers
 	$('.play').click(function(e) {
 		if (MPD.json['state'] == 'play') {
-			$('#playbar-mcount').countdown('pause'); // new
-			if (UI.mobile) {
-				$('#m-countdown').countdown('pause');
-			}
-			else {
-				$('#countdown-display, #playbar-countdown').countdown('pause');
-			}
+			$('#countdown-display').countdown('pause');
 
 			if (MPD.json['file'].substr(0, 4).toLowerCase() == 'http') {
-				var cmd = MPD.json['artist'] == 'Radio station' ? 'stop' : 'pause'; // pause if for upnp url
+                // Pause if upnp url
+				var cmd = MPD.json['artist'] == 'Radio station' ? 'stop' : 'pause';
 			}
 			else {
-			    var cmd = 'pause'; // song file
+                // Song file
+			    var cmd = 'pause';
 			}
 		}
 		else if (MPD.json['state'] == 'pause') {
-			$('#playbar-mcount').countdown('resume'); // new
-			if (UI.mobile) {
-				$('#m-countdown').countdown('resume');
-			}
-			else {
-				$('#countdown-display, #playbar-countdown, #playbar-mcount').countdown('resume'); // add #playbar-mcount, same for below
-				customScroll('pl', parseInt(MPD.json['song']), 200);
-			}
+			$('#countdown-display').countdown('resume');
+			customScroll('playqueue', parseInt(MPD.json['song']), 200);
 			var cmd = 'play';
 		}
 		else if (MPD.json['state'] == 'stop') {
 			if (SESSION.json['timecountup'] == '1' || parseInt(MPD.json['time']) == 0) {
-				$('#countdown-display').countdown({since: 0, onTick: watchCountdown, compact: true, format: 'hMS', layout: '{h<}{hn}{sep}{h>}{mnn}{sep}{snn}'});
-				$('#m-countdown, #playbar-countdown, #playbar-mcount').countdown({since: 0, compact: true, format: 'hMS', layout: '{h<}{hn}{sep}{h>}{mnn}{sep}{snn}'});
+				$('#countdown-display').countdown({since: 0, compact: true, format: 'hMS', layout: '{h<}{hn}{sep}{h>}{mnn}{sep}{snn}'});
 			}
 			else {
-				$('#countdown-display').countdown({until: 0, onTick: watchCountdown, compact: true, format: 'hMS', layout: '{h<}{hn}{sep}{h>}{mnn}{sep}{snn}'});
-				$('#m-countdown, #playbar-countdown, #playbar-mcount').countdown({until: 0, compact: true, format: 'hMS', layout: '{h<}{hn}{sep}{h>}{mnn}{sep}{snn}'});
+				$('#countdown-display').countdown({until: 0, compact: true, format: 'hMS', layout: '{h<}{hn}{sep}{h>}{mnn}{sep}{snn}'});
 			}
 			if (!UI.mobile) {
-		        customScroll('pl', parseInt(MPD.json['song']), 200);
+		        customScroll('playqueue', parseInt(MPD.json['song']), 200);
 			}
 			var cmd = 'play';
 		}
@@ -462,24 +498,31 @@ jQuery(document).ready(function($) { 'use strict';
 		sendMpdCmd(cmd);
 		return false;
 	});
-
 	$('.next').click(function(e) {
-		var cmd = $(".playlist li").length == (parseInt(MPD.json['song']) + 1).toString() ? 'play 0' : 'next';
-		sendMpdCmd(cmd);
+        if (MPD.json['random'] == '1' && SESSION.json['ashuffle'] == '0') {
+            // Don't wrap last track to first track when MPD random play is on
+            sendMpdCmd('next');
+        } else {
+            // Custom wrap last track to first track
+    		var cmd = $(".playqueue li").length == (parseInt(MPD.json['song']) + 1).toString() ? 'play 0' : 'next';
+    		sendMpdCmd(cmd);
+        }
 		return false;
 	});
 	$('.prev').click(function(e) {
-        $.getJSON('command/moode.php?cmd=getmpdstatus', function(result) {
-            if (parseInt(MPD.json['time']) > 0 && parseInt(result['elapsed']) > 0) {
+        $.getJSON('command/playback.php?cmd=get_mpd_status', function(data) {
+            if (parseInt(MPD.json['time']) > 0 && parseInt(data['elapsed']) > 0) {
+                // Song file
     			window.clearInterval(UI.knob);
-    			//UI.mobile ? refreshTimer(0, 0, 'stop') : refreshTimer(0, 0, 'stop');
-    			refreshTimer(0, 0, 'stop')
-    	        sendMpdCmd('seek ' + MPD.json['song'] + ' 0');
     			if (MPD.json['state'] != 'pause') {
     				sendMpdCmd('pause');
     			}
+                setTimeout(function() {
+                    sendMpdCmd('seek ' + MPD.json['song'] + ' 0');
+                }, DEFAULT_TIMEOUT);
             }
     		else {
+                // Radio station
     			sendMpdCmd('previous');
     		}
     		return false;
@@ -496,36 +539,35 @@ jQuery(document).ready(function($) { 'use strict';
 		SESSION.json['volmute'] == '1' ? volMuteSwitch() : '';
 		var curVol = parseInt(SESSION.json['volknob']);
 		var newVol = curVol > 0 ? curVol - 1 : 0;
-		setVolume(newVol, 'volune_down');
+		setVolume(newVol, 'volume_down');
 		return false
 	});
 	$('.btn-toggle').click(function(e) {
-		//var id = $(this).attr('id');
 		var cmd = $(this).data('cmd');
-		var toggle = $(this).hasClass('btn-primary') ? '0' : '1';
+		var toggleValue = $(this).hasClass('btn-primary') ? '0' : '1';
 		if (cmd == 'random' && SESSION.json['ashufflesvc'] == '1') {
-            $.get('command/moode.php?cmd=ashuffle', {'ashuffle':toggle});
+            $.post('command/playback.php?cmd=toggle_ashuffle', {'toggle_value':toggleValue});
 		    $('.random').toggleClass('btn-primary');
 		    $('.consume').toggleClass('btn-primary');
-			sendMpdCmd('consume ' + toggle);
+			sendMpdCmd('consume ' + toggleValue);
 		}
 		else {
 			if (cmd == 'consume') {
 				$('#menu-check-consume').toggle();
 			}
 		    $('.' + cmd).toggleClass('btn-primary');
-			sendMpdCmd(cmd + ' ' + toggle);
+			sendMpdCmd(cmd + ' ' + toggleValue);
 		}
 	});
 
-    // countdown time knob
+    // Countdown time knob
     $('.playbackknob').knob({
 		configure: {'fgColor':accentColor},
         inline: false,
 		change : function(value) {
             if (MPD.json['state'] != 'stop') {
 				window.clearInterval(UI.knob)
-				// update time display when changing slider
+				// Update time display when changing slider
 				var seekto = Math.floor((value * parseInt(MPD.json['time'])) / 1000);
 				if (SESSION.json['timecountup'] == '1' || parseInt(MPD.json['time']) == 0) {
 					$('#countdown-display').html(formatSongTime(seekto)); // count up
@@ -538,7 +580,7 @@ jQuery(document).ready(function($) { 'use strict';
 				$('#time').val(0);
 			}
 
-			// repaint not needed
+			// Repaint not needed
 			UI.knobPainted = false;
         },
         release : function(value) {
@@ -547,10 +589,10 @@ jQuery(document).ready(function($) { 'use strict';
 				var seekto = Math.floor((value * parseInt(MPD.json['time'])) / 1000);
 				sendMpdCmd('seek ' + MPD.json['song'] + ' ' + seekto);
 				if (SESSION.json['timecountup'] == '1' || parseInt(MPD.json['time']) == 0) {
-					$('#countdown-display').countdown({since: -seekto, onTick: watchCountdown, compact: true, format: 'hMS', layout: '{h<}{hn}{sep}{h>}{mnn}{sep}{snn}'});
+					$('#countdown-display').countdown({since: -seekto, compact: true, format: 'hMS', layout: '{h<}{hn}{sep}{h>}{mnn}{sep}{snn}'});
 				}
 				else {
-					$('#countdown-display').countdown({until: seekto, onTick: watchCountdown, compact: true, format: 'hMS', layout: '{h<}{hn}{sep}{h>}{mnn}{sep}{snn}'});
+					$('#countdown-display').countdown({until: seekto, compact: true, format: 'hMS', layout: '{h<}{hn}{sep}{h>}{mnn}{sep}{snn}'});
 				}
 			}
 
@@ -576,135 +618,126 @@ jQuery(document).ready(function($) { 'use strict';
 		*/
     });
 
-	if ($('#playback-panel').hasClass('newui')) {
-		$('.playbackknob, .volumeknob').trigger('configure',{"thickness":'.09'});
-	}
-
-	// toggle count up/down and direction icon, radio always counts up
+	// Toggle count up/down and direction icon, radio always counts up
 	$('#countdown-display, #m-countdown').click(function(e) {
 		if (MPD.json['artist'] != 'Radio station') {
 			SESSION.json['timecountup'] == '1' ? SESSION.json['timecountup'] = '0' : SESSION.json['timecountup'] = '1';
-            $.post('command/moode.php?cmd=updcfgsystem', {'timecountup': SESSION.json['timecountup']});
-            $.getJSON('command/moode.php?cmd=getmpdstatus', function(result) {
+            $.post('command/cfg-table.php?cmd=upd_cfg_system', {'timecountup': SESSION.json['timecountup']});
+            $.getJSON('command/playback.php?cmd=get_mpd_status', function(data) {
                 if (SESSION.json['timecountup'] == '1' || parseInt(MPD.json['time']) == 0) {
-    				refreshTimer(parseInt(result['elapsed']), parseInt(MPD.json['time']), MPD.json['state']); // Count up
-    				$('#total').html(formatSongTime(MPD.json['time']) + '<i class="fas fa-caret-up countdown-caret"></i>');
+                    // Count up
+    				updKnobStartFrom(parseInt(data['elapsed']), MPD.json['state']);
     			}
     			else {
-    				refreshTimer(parseInt(MPD.json['time'] - parseInt(result['elapsed'])), 0, MPD.json['state']); // count down
-    				$('#total').html(formatSongTime(MPD.json['time']) + '<i class="fas fa-caret-down countdown-caret"></i>');
+                    // Count down
+    				updKnobStartFrom(parseInt(MPD.json['time'] - parseInt(data['elapsed'])), MPD.json['state']);
     			}
+                $('#total').html(formatSongTime(MPD.json['time']));
             });
 		}
     });
 
-    // Click on playlist entry
-    $('.playlist, .cv-playlist').on('click', '.pl-entry', function(e) {
-        if (GLOBAL.plActionClicked) {
-            GLOBAL.plActionClicked = false;
+    // Click on Queue item
+    $('.playqueue, .cv-playqueue').on('click', '.playqueue-entry', function(e) {
+        if (GLOBAL.pqActionClicked) {
+            GLOBAL.pqActionClicked = false;
             return;
         }
 
-        var selector = $(this).parent().hasClass('playlist') ? '.playlist' : '.cv-playlist';
-        var pos = $(selector + ' .pl-entry').index(this);
+        var selector = $(this).parent().hasClass('playqueue') ? '.playqueue' : '.cv-playqueue';
+        var pos = $(selector + ' .playqueue-entry').index(this);
 
         sendMpdCmd('play ' + pos);
         $(this).parent().addClass('active');
-
-		/*if (UI.mobile) { // for mobile scroll to top
-			$('html, body').animate({ scrollTop: 0 }, 'fast');
-		}*/
     });
 
-	// Click on playlist action menu button
-    $('.playlist').on('click', '.pl-action', function(e) {
-        GLOBAL.plActionClicked = true;
+	// Click on Queue action menu button (ellipsis)
+    $('.playqueue').on('click', '.playqueue-action', function(e) {
+        GLOBAL.pqActionClicked = true;
 
-		// store posn for later use by action menu selection
-        UI.dbEntry[0] = $('.playlist .pl-action').index(this);
-		// store clock radio play name in UI.dbEntry[3]
-		if ($('#pl-' + (UI.dbEntry[0] + 1) + ' .pll2').html().substr(0, 2) == '<i') { // has icon (fa-microphone)
-			// radio station
-			var line2 = $('#pl-' + (UI.dbEntry[0] + 1) + ' .pll2').html();
+		// Store posn for later use by action menu selection
+        UI.dbEntry[0] = $('.playqueue .playqueue-action').index(this);
+		// Store clock radio play name in UI.dbEntry[5]
+		if ($('#pq-' + (UI.dbEntry[0] + 1) + ' .pll2').html().substr(0, 2) == '<i') { // Has icon (fa-microphone)
+			// Radio station
+			var line2 = $('#pq-' + (UI.dbEntry[0] + 1) + ' .pll2').html();
 			var station = line2.substr((line2.indexOf('</i>') + 4));
-			UI.dbEntry[3] = station.trim();
+			UI.dbEntry[5] = station.trim();
 		}
 		else {
-			// song file
-			var title = $('#pl-' + (UI.dbEntry[0] + 1) + ' .pll1').html().trim();
-			var line2 = $('#pl-' + (UI.dbEntry[0] + 1) + ' .pll2').text(); // artist - album
-			var artist = line2.substr(0, (line2.indexOf('-') - 1)); // strip off album
-			UI.dbEntry[3] = title + ', ' + artist;
+			// Song file
+			var title = $('#pq-' + (UI.dbEntry[0] + 1) + ' .pll1').html().trim();
+            var artist = $('#pq-' + (UI.dbEntry[0] + 1) + ' .pll2').text();
+			UI.dbEntry[5] = title + ' - ' + artist;
 		}
     });
 
-	// save playlist
-    $('#pl-btnSave').click(function(e){
-		var plname = $('#pl-saveName').val();
+	// Save Queue to playlist
+    $('#btn-save-queue-to-playlist').click(function(e){
+		var plName = $('#playlist-save-name').val();
 
-		if (plname) {
-			if (~plname.indexOf('NAS') || ~plname.indexOf('RADIO') || ~plname.indexOf('SDCARD')) {
-				notify('plnameerror');
+		if (plName) {
+			if (containsBaseFolderName(plName)) {
+				notify(NOTIFY_TITLE_ALERT, 'playlist_name_error', 'NAS, RADIO, SDCARD and USB cannot be used in the name.');
+			} else {
+                notify(NOTIFY_TITLE_INFO, 'saving_queue', NOTIFY_DURATION_SHORT);
+                $.get('command/playlist.php?cmd=save_queue_to_playlist&name=' + plName, function() {
+    				notify(NOTIFY_TITLE_INFO, 'queue_saved', NOTIFY_DURATION_SHORT);
+                    $('#btn-pl-refresh').click();
+                });
 			}
-			else {
-                $.get('command/moode.php?cmd=savepl&plname=' + plname);
-				notify('savepl');
-			}
-		}
-		else {
-			notify('needplname');
+		} else {
+			notify(NOTIFY_TITLE_ALERT, 'playlist_name_needed');
 		}
     });
-    $('#savepl-modal').on('shown.bs.modal', function(e) {
-        $('#pl-saveName').focus();
+    $('#save-queue-to-playlist-modal').on('shown.bs.modal', function(e) {
+        setTimeout(function() {
+            $('#playlist-save-name').focus();
+        }, DEFAULT_TIMEOUT);
     });
-	// set favorites
-    $('#pl-btnSetFav').click(function(e){
-		var favname = $('#pl-favName').val();
 
-		if (favname) {
-			if (~favname.indexOf('NAS') || ~favname.indexOf('RADIO') || ~favname.indexOf('SDCARD')) {
-				notify('plnameerror');
+	// Set favorites
+    $('#btn-set-favorites-name').click(function(e){
+		var favoritesName = $('#playlist-favorites-name').val();
+
+		if (favoritesName) {
+			if (containsBaseFolderName(favoritesName)) {
+				notify(NOTIFY_TITLE_ALERT, 'playlist_name_error', 'NAS, RADIO, SDCARD and USB cannot be used in the name.');
+			} else {
+                notify(NOTIFY_TITLE_INFO, 'setting_favorites_name', NOTIFY_DURATION_SHORT);
+                $.get('command/playlist.php?cmd=set_favorites_name&name=' + favoritesName, function(){
+                    notify(NOTIFY_TITLE_INFO, 'favorites_name_set', NOTIFY_DURATION_SHORT);
+                });
 			}
-			else {
-                $.get('command/moode.php?cmd=setfav&favname=' + favname);
-				notify('favset');
-			}
-		}
-		else {
-			notify('needplname');
+		} else {
+			notify(NOTIFY_TITLE_ALERT, 'playlist_name_needed');
 		}
     });
-    $('#setfav-modal').on('shown.bs.modal', function() {
-        $('#pl-favName').focus();
+    $('#set-favorites-playlist-modal').on('shown.bs.modal', function() {
+        setTimeout(function() {
+            $('#playlist-favorites-name').focus();
+        }, DEFAULT_TIMEOUT);
     });
-	// add item to favorites
-    $('.addfav').click(function(e){
-		// pulse the btn
-		$('.addfav i').addClass('pulse');
-		$('.addfav i').addClass('fas');
+	// Add item to favorites
+    $('.add-item-to-favorites').click(function(e){
+		// Pulse the btn
+        $('.add-item-to-favorites i').addClass('pulse').addClass('fas');
 		setTimeout(function() {
-			$('.addfav i').removeClass('fas');
-			$('.addfav i').removeClass('pulse');
-		}, 1000);
+			$('.add-item-to-favorites i').removeClass('pulse').removeClass('fas');
+		}, 3000);
 
-		// add current pl item to favorites playlist
+		// Add current pl item to favorites playlist
 		if (MPD.json['file'] != null) {
-            $.get('command/moode.php?cmd=addfav&favitem=' + encodeURIComponent(MPD.json['file']));
-			notify('favadded');
-		}
-		else {
-			notify('nofavtoadd');
+            notify(NOTIFY_TITLE_INFO, 'adding_favorite', NOTIFY_DURATION_SHORT);
+            $.get('command/playlist.php?cmd=add_item_to_favorites&item=' + encodeURIComponent(MPD.json['file']), function() {
+                notify(NOTIFY_TITLE_INFO, 'favorite_added', NOTIFY_DURATION_SHORT);
+            });
+		} else {
+			notify(NOTIFY_TITLE_ALERT, 'no_favorite_to_add');
 		}
     });
 
-	// click on artist name in lib meta area
-	$('#lib-artistname').click(function(e) {
-		$('#artistsList .lib-entry').filter(function() {return $(this).text() == $('#lib-artistname').text()}).click();
-		customScroll('artists', UI.libPos[2], 200);
-	});
-
-    // Click on title in playback or cv
+    // Click on title in Playback or CoverView
     $('#playback-panel').click(function(e) {
         if ($('#playback-panel').hasClass('cv')) {
             e.preventDefault();
@@ -712,41 +745,75 @@ jQuery(document).ready(function($) { 'use strict';
 	});
 
 	// Click on artist or station name in playback
-	$('#currentalbum').click(function(e) {
+	$('#currentartist').click(function(e) {
         if (!$('#playback-panel').hasClass('cv')) {
             // Radio station
     		if (MPD.json['artist'] == 'Radio station') {
-    			$('.database-radio li').each(function(index){
-    				if ($(this).text().search(RADIO.json[MPD.json['file']]['name']) != -1) {
-    					UI.radioPos = index + 1;
-    				}
-    			});
-                currentView = 'playback,radiocovers';
+                currentView = 'playback,radio';
     			$('#playback-switch').click();
-    			if (!$('.radio-view-btn').hasClass('active')) {
+
+                if (!$('.radio-view-btn').hasClass('active')) {
     				$('.radio-view-btn').click();
     			}
-    		}
-    		// Song file
-    		else {
+
+                var rvHeaderCount = getRVHeaderCount(); // NOTE: Also updates UI.radioPos
+                storeRadioPos(UI.radioPos);
+
+                setTimeout(function() {
+                    customScroll('radio', UI.radioPos, 200);
+                    $('.database-radio li').removeClass('active');
+                    $('#ra-' + (UI.radioPos - rvHeaderCount + 1).toString()).addClass('active');
+                    UI.dbEntry[3] = 'ra-' + (UI.radioPos - rvHeaderCount + 1).toString();
+                }, DEFAULT_TIMEOUT);
+    		} else {
+                // Song file
     			$('#playback-switch').click();
     			$('.tag-view-btn').click();
-    			setTimeout(function() {
-    				$('#artistsList .lib-entry').filter(function() {return $(this).text() == MPD.json['artist'];}).click();
-    				customScroll('artists', UI.libPos[2], 200);
-    			}, 300);
+
+                var artistText = $(this).text().indexOf('...') != -1 ? $(this).text().slice(0, -3) : $(this).text();
+				$('#artistsList .lib-entry').filter(function() {return $(this).text() == artistText/*MPD.json['artist']*/;}).click();
+                customScroll('artists', UI.libPos[2], 200);
+
+                $('#albumsList .lib-entry .album-name-art').filter(function() {return $(this).text() == MPD.json['album'];}).click();
+                customScroll('albums', UI.libPos[0], 200);
     		}
         }
 	});
 
-	// browse panel
+    //
+    // FOLDER VIEW
+    //
+	// Folder view item click
 	$('.database').on('click', '.db-browse', function(e) {
+        //console.log('Folder item click');
 	    if ($(this).hasClass('db-folder') || $(this).hasClass('db-savedplaylist')) {
-			var cmd = $(this).hasClass('db-folder') ? 'lsinfo' : 'listsavedpl';
+            UI.dbEntry[3] = $(this).parent().attr('id');
 			UI.dbPos[UI.dbPos[10]] = $(this).parent().attr('id').replace('db-','');
 			++UI.dbPos[10];
-			mpdDbCmd(cmd, $(this).parent().data('path'));
+
+            var path = $(this).parent().data('path');
+            if ($(this).hasClass('db-folder')) {
+                $.getJSON('command/music-library.php?cmd=lsinfo', {'path': path}, function(data) {
+                    UI.dbCmd = 'lsinfo';
+                    renderFolderView(data, path);
+                });
+            } else {
+                $.getJSON('command/playlist.php?cmd=get_pl_items_fv', {'path': path}, function(data) {
+                    UI.dbCmd = 'get_pl_items_fv';
+                    renderFolderView(data, path);
+                });
+            }
 		}
+	});
+    // Folder view context menu click
+	$('.database').on('click', '.db-action, .db-album, .db-song', function(e) {
+        //console.log('Folder menu click');
+		$('#db-' + UI.dbPos[UI.dbPos[10]].toString()).removeClass('active');
+		UI.dbEntry[0] = $(this).parent().attr('data-path');
+		UI.dbEntry[3] = $(this).parent().attr('id'); // Used in .context-menu a click handler to remove highlight
+		$('#db-search-results').css('font-weight', 'normal');
+		//$('.database li').removeClass('active');
+		$(this).parent().addClass('active');
 	});
 	$('#db-back').click(function(e) {
 		$('#db-search-results').hide();
@@ -756,12 +823,14 @@ jQuery(document).ready(function($) { 'use strict';
 			var path = UI.path;
 			var cutpos = path.lastIndexOf('/');
 			if (cutpos !=-1) {
-				var path = path.slice(0,cutpos);
+				path = path.slice(0,cutpos);
 			}
 			else {
 				path = '';
 			}
-			mpdDbCmd('lsinfo', path);
+            $.getJSON('command/music-library.php?cmd=lsinfo', {'path': path}, function(data) {
+                renderFolderView(data, path);
+            });
 
 			if (UI.dbPos[10] == 0) {
 				UI.dbPos.fill(0);
@@ -773,158 +842,84 @@ jQuery(document).ready(function($) { 'use strict';
 		$('#dbfs').val('');
 		UI.dbPos.fill(0);
 		UI.path = '';
-		mpdDbCmd('lsinfo', '');
+        $.getJSON('command/music-library.php?cmd=lsinfo', {'path': ''}, function(data) {
+            renderFolderView(data, '');
+        });
 	});
 	$('#db-refresh').click(function(e) {
-		UI.dbCmd = UI.dbCmd != 'lsinfo' && UI.dbCmd != 'listsavedpl' ? 'lsinfo' : UI.dbCmd;
-		if (UI.dbCmd == 'lsinfo' || UI.dbCmd == 'listsavedpl') {
-			mpdDbCmd(UI.dbCmd, UI.path);
-		}
-	});
-	$('#db-search-submit').click(function(e) {
-		var searchStr = '';
-		if ($('#dbsearch-alltags').val() != '') {
-			searchStr = $('#dbsearch-alltags').val().trim();
-			$.post('command/moode.php?cmd=search' + '&tagname=any', {'query': searchStr}, function(data) {renderBrowse(data, '', searchStr);}, 'json');
-		}
-		else {
-			searchStr = $('#dbsearch-genre').val() == '' ? '' : 'genre "' + $('#dbsearch-genre').val().trim(); + '"'
-			searchStr += $('#dbsearch-artist').val() == '' ? '' : ' artist "' + $('#dbsearch-artist').val().trim(); + '"'
-			searchStr += $('#dbsearch-album').val() == '' ? '' : ' album "' + $('#dbsearch-album').val().trim(); + '"'
-			searchStr += $('#dbsearch-title').val() == '' ? '' : ' title "' + $('#dbsearch-title').val().trim(); + '"'
-			searchStr += $('#dbsearch-albumartist').val() == '' ? '' : ' albumartist "' + $('#dbsearch-albumartist').val().trim(); + '"'
-			searchStr += $('#dbsearch-date').val() == '' ? '' : ' date "' + $('#dbsearch-date').val().trim(); + '"'
-			searchStr += $('#dbsearch-composer').val() == '' ? '' : ' composer "' + $('#dbsearch-composer').val().trim(); + '"'
-			searchStr += $('#dbsearch-performer').val() == '' ? '' : ' performer "' + $('#dbsearch-performer').val().trim(); + '"'
-			searchStr += $('#dbsearch-comment').val() == '' ? '' : ' comment "' + $('#dbsearch-comment').val().trim(); + '"'
-			searchStr += $('#dbsearch-file').val() == '' ? '' : ' file "' + $('#dbsearch-file').val().trim(); + '"'
-			if (searchStr != '') {
-				$.post('command/moode.php?cmd=search' + '&tagname=specific', {'query': searchStr}, function(data) {renderBrowse(data, '', searchStr);}, 'json');
-			}
-		}
-	});
-	$('#db-search-reset').click(function(e) {
-		$('#dbsearch-alltags, #dbsearch-genre, #dbsearch-artist, #dbsearch-album, #dbsearch-title, #dbsearch-albumartist, #dbsearch-date, #dbsearch-composer, #dbsearch-performer, #dbsearch-comment, #dbsearch-file').val('');
-		$('#dbsearch-alltags').focus();
-	});
-	$('#dbsearch-modal').on('shown.bs.modal', function() {
-		$('#db-search-results').css('font-weight', 'normal');
-		$('.database li').removeClass('active');
-		$('#dbsearch-alltags').focus();
+        UI.dbPos[UI.dbPos[10]] = 0;
+		$.getJSON('command/music-library.php?cmd=lsinfo', {'path': UI.path}, function(data) {
+			renderFolderView(data, UI.path);
+        });
 	});
 	$('#db-search-results').click(function(e) {
 		$('.database li').removeClass('active');
 		$('#db-search-results').css('font-weight', 'bold');
 		dbFilterResults = [];
 		$('.database li').each(function() {
-			dbFilterResults.push($(this).attr('data-path'));
+            if ($(this).children('div').hasClass('db-song')) {
+                dbFilterResults.push($(this).attr('data-path'));
+            }
 		});
 	});
-	// context menu
 	$('#context-menu-db-search-results a').click(function(e) {
 		$('#db-search-results').css('font-weight', 'normal');
-	    if ($(this).data('cmd') == 'addall') {
-	        mpdDbCmd('addall', dbFilterResults);
-	        notify('add');
+	    if ($(this).data('cmd') == 'add_group') {
+	        sendQueueCmd('add_group', dbFilterResults);
+	        notify(NOTIFY_TITLE_INFO, $(this).data('cmd'), NOTIFY_DURATION_SHORT);
 		}
-	    if ($(this).data('cmd') == 'playall') {
-	        mpdDbCmd('playall', dbFilterResults);
-	        notify('add');
+	    if ($(this).data('cmd') == 'play_group') {
+	        sendQueueCmd('play_group', dbFilterResults);
 		}
-	    if ($(this).data('cmd') == 'clrplayall') {
-	        mpdDbCmd('clrplayall', dbFilterResults);
-	        notify('clrplay');
+	    if ($(this).data('cmd') == 'clear_play_group') {
+	        sendQueueCmd('clear_play_group', dbFilterResults);
 		}
 	});
-	// Radio panel sub folders
-	$('.database-radio').on('click', '.db-browse', function(e) {
-		if ($(this).hasClass('db-radiofolder') || $(this).hasClass('db-radiofolder-icon')) {
-			e.stopImmediatePropagation();
-			UI.raFolderLevel[UI.raFolderLevel[4]] = $(this).parent().attr('id').replace('db-','');
-			++UI.raFolderLevel[4];
-			mpdDbCmd('lsinfo_radio', $(this).parent().data('path'));
-            lazyLode('radio');
-            setTimeout(function() {
-                $('#database-radio').scrollTo(0, 200);
-            }, SCROLLTO_TIMEOUT);
-		}
-	});
-    // Radio folder back button
-    $('#ra-back').click(function(e) {
-        if (UI.pathr != 'RADIO') {
-			var pathr = UI.pathr;
-			var cutpos = pathr.lastIndexOf('/');
-			if (cutpos != -1) {
-				var pathr = pathr.slice(0,cutpos);
-			}
-			else {
-				pathr = '';
-			}
-            mpdDbCmd('lsinfo_radio', pathr);
-            lazyLode('radio');
-            setTimeout(function() {
-                $('#database-radio').scrollTo(0, 200);
-            }, SCROLLTO_TIMEOUT);
-		}
-	});
-	$('#ra-home').click(function(e) {
-		UI.raFolderLevel[4] = 0;
-		UI.pathr = '';
-		mpdDbCmd('lsinfo_radio', 'RADIO');
-        lazyLode('radio');
-        setTimeout(function() {
-            $('#database-radio').scrollTo(0, 200);
-        }, SCROLLTO_TIMEOUT);
 
+    //
+    // RADIO VIEW
+    //
+    // Refresh the station list
+	$('#btn-ra-refresh').click(function(e) {
+        renderRadioView();
+        lazyLode('radio');
+        $('#database-radio').scrollTo(0, 200);
 		UI.radioPos = -1;
-		storeRadioPos(UI.radioPos)
-        $("#searchResetRa").hide();
+		storeRadioPos(UI.radioPos);
+        $("#btn-ra-search-reset").hide();
         showSearchResetRa = false;
 	});
-	// refresh panel
-	$('#ra-refresh').click(function(e) {
-		mpdDbCmd('lsinfo_radio', UI.pathr);
-        lazyLode('radio');
-        setTimeout(function() {
-            $('#database-radio').scrollTo(0, 200);
-        }, SCROLLTO_TIMEOUT);
-
-		UI.radioPos = -1;
-		storeRadioPos(UI.radioPos)
-        $("#searchResetRa").hide();
-        showSearchResetRa = false;
-	});
-	// create new station
-	$('#ra-new').click(function(e) {
-		$('#new-station-pls-name').val('New station');
+	// New station modal (+)
+	$('#btn-ra-new').click(function(e) {
+		$('#new-station-name').val('New station');
 		$('#new-station-url').val('http://');
         $('#new-logoimage').val('');
 		$('#preview-new-logoimage').html('');
         $('#info-toggle-new-logoimage').css('margin-left','unset');
-
         $('#new-station-tags').css('margin-top', '0');
-        $('#new-station-display-name').val('');
+        $('#new-station-type span').text('Regular');
         $('#new-station-genre').val('');
         $('#new-station-broadcaster').val('');
+        $('#new-station-home-page').val('');
         $('#new-station-language').val('');
         $('#new-station-country').val('');
         $('#new-station-region').val('');
         $('#new-station-bitrate').val('');
         $('#new-station-format').val('');
+        $('#new-station-geo-fenced span').text('No');
+        $('#new-station-mpd-monitor span').text('No');
 
-		$('#newstation-modal').modal();
+		$('#new-station-modal').modal();
 	});
-    $('#newstation-modal').on('shown.bs.modal', function() {
-        $('#new-station-pls-name').focus();
+    $('#new-station-modal').on('shown.bs.modal', function() {
+        setTimeout(function() {
+            $('#new-station-name').focus();
+        }, DEFAULT_TIMEOUT);
     });
-    $('#new-station-pls-name').change(function(e){
-        $('#new-station-display-name').val($('#new-station-pls-name').val());
-    });
-
-	// radio search
+	// Radio search
 	$('#ra-filter').keyup(function(e){
 		if (!showSearchResetRa) {
-			$('#searchResetRa').show();
+			$('#btn-ra-search-reset').show();
 			showSearchResetRa = true;
 		}
 
@@ -936,35 +931,162 @@ jQuery(document).ready(function($) { 'use strict';
 			var count = 0;
 
 			if (filter == '') {
-				$("#searchResetRa").hide();
+				$("#btn-ra-search-reset").hide();
 				showSearchResetRa = false;
 			}
 
 			$('.database-radio li').each(function(){
 				if ($(this).text().search(new RegExp(filter, 'i')) < 0) {
 					$(this).hide();
-				}
-				else {
+				} else {
 					$(this).show();
 					count++;
 				}
 			});
+
 		    var s = (count == 1) ? '' : 's';
             lazyLode('radio');
             $('#database-radio').scrollTo(0, 200);
 
-		}, RASEARCH_TIMEOUT);
+		}, SEARCH_TIMEOUT);
 	});
-	$('#searchResetRa').click(function(e) {
+	$('#btn-ra-search-reset').click(function(e) {
 		$('.database-radio li').css('display', 'inline-block');
-        $("#searchResetRa").hide();
+        $("#btn-ra-search-reset").hide();
 		showSearchResetRa = false;
 	});
+    // Radio view context menu
+	$('.database-radio').on('click', '.cover-menu', function(e) {
+        var pos = $(this).parents('li').index();
+        var path = $(this).parents('li').data('path');
+        // DEBUG:
+        //console.log('click .cover-menu: pos|path: ' + pos + '|' + path);
 
-    // playlist search
+        UI.dbEntry[0] = path;
+        UI.radioPos = pos;
+		storeRadioPos(UI.radioPos)
+
+        $('#' + UI.dbEntry[3]).removeClass('active');
+        UI.dbEntry[3] = $(this).parents('li').attr('id');
+        $(this).parents('li').addClass('active');
+	});
+    // Create new station
+    $('#btn-create-station').click(function(e){
+		if ($('#new-station-name').val().trim() == '' || $('#new-station-url').val().trim() == '') {
+			notify(NOTIFY_TITLE_ALERT, 'blank_entries', 'Station not created.');
+		} else {
+            var path = {
+                'name': $('#new-station-name').val().trim(),
+                'url': $('#new-station-url').val().trim(),
+                'type': getKeyOrValue('value', $('#new-station-type span').text()),
+                'logo': 'local',
+                'genre': $('#new-station-genre').val().trim(),
+                'broadcaster': $('#new-station-broadcaster').val().trim(),
+                'language': $('#new-station-language').val().trim(),
+                'country': $('#new-station-country').val().trim(),
+                'region': $('#new-station-region').val().trim(),
+                'bitrate': $('#new-station-bitrate').val().trim(),
+                'format': $('#new-station-format').val().trim(),
+                'geo_fenced': $('#new-station-geo-fenced span').text(),
+                'home_page': $('#new-station-home-page').val().trim(),
+                'monitor': $('#new-station-mpd-monitor span').text()
+            };
+            notify(NOTIFY_TITLE_INFO, 'creating_station');
+            $.post('command/radio.php?cmd=new_station', {'path': path}, function(msg) {
+                if (msg == 'OK') {
+                    RADIO.json[path['url']] = {'name': path['name'], 'type': path['type'], 'logo': path['logo'],
+                    'bitrate': path['bitrate'], 'format': path['format'], 'home_page': path['home_page'],
+                    'monitor': path['monitor']};
+                    notify(NOTIFY_TITLE_INFO, 'new_station', NOTIFY_DURATION_SHORT);
+                } else {
+                    notify(NOTIFY_TITLE_ALERT, 'validation_check', msg + '.', NOTIFY_DURATION_MEDIUM);
+                }
+                $('#btn-ra-refresh').click();
+            }, 'json');
+		}
+	});
+    // Update station
+	$('#btn-update-station').click(function(e){
+		if ($('#edit-station-name').val().trim() == '' || $('#edit-station-url').val().trim() == '') {
+			notify(NOTIFY_TITLE_ALERT, 'blank_entries', 'Station not updated.');
+		} else {
+            var path = {
+                'id': GLOBAL.editStationId,
+                'name': $('#edit-station-name').val().trim(),
+                'url': $('#edit-station-url').val().trim(),
+                'type': getKeyOrValue('value', $('#edit-station-type span').text()),
+                'logo': 'local',
+                'genre': $('#edit-station-genre').val().trim(),
+                'broadcaster': $('#edit-station-broadcaster').val().trim(),
+                'language': $('#edit-station-language').val().trim(),
+                'country': $('#edit-station-country').val().trim(),
+                'region': $('#edit-station-region').val().trim(),
+                'bitrate': $('#edit-station-bitrate').val().trim(),
+                'format': $('#edit-station-format').val().trim(),
+                'geo_fenced': $('#edit-station-geo-fenced span').text(),
+                'home_page': $('#edit-station-home-page').val().trim(),
+                'monitor': $('#edit-station-mpd-monitor span').text()
+            };
+            notify(NOTIFY_TITLE_INFO, 'updating_station');
+            $.post('command/radio.php?cmd=upd_station', {'path': path}, function(msg) {
+                if (msg == 'OK') {
+                    RADIO.json[path['url']] = {'name': path['name'], 'type': path['type'], 'logo': path['logo'],
+                    'bitrate': path['bitrate'], 'format': path['format'], 'home_page': path['home_page'],
+                    'monitor': path['monitor']};
+                    notify(NOTIFY_TITLE_INFO, 'upd_station', NOTIFY_DURATION_SHORT);
+                } else {
+                    notify(NOTIFY_TITLE_ALERT, 'validation_check', msg + '.');
+                }
+                $('#btn-ra-refresh').click();
+            }, 'json');
+		}
+	});
+    // Delete station
+	$('#btn-del-station').click(function(e){
+        var stationName = UI.dbEntry[0].slice(0,UI.dbEntry[0].lastIndexOf('.')).substr(6); // Trim RADIO/ and .pls
+        deleteRadioStationObject(stationName);
+        $.post('command/radio.php?cmd=del_station', {'path': UI.dbEntry[0]}, function() {
+            notify(NOTIFY_TITLE_INFO, 'del_station', NOTIFY_DURATION_SHORT);
+            UI.radioPos = -1;
+    		storeRadioPos(UI.radioPos);
+            renderRadioView();
+            lazyLode('radio');
+            $('.busy-spinner').hide();
+        });
+	});
+
+    //
+    // PLAYLIST VIEW
+    //
+    // Refresh the playlist list
+	$('#btn-pl-refresh').click(function(e) {
+        renderPlaylistView();
+        lazyLode('playlist');
+        $('#database-playlist').scrollTo(0, 200);
+		UI.playlsitPos = -1;
+		storePlaylistPos(UI.playlistPos)
+        $('#btn-pl-search-reset').hide();
+        showSearchResetPl = false;
+	});
+    // New playlist modal (+)
+	$('#btn-pl-new').click(function(e) {
+		$('#new-playlist-name').val('New playlist');
+        $('#new-plcoverimage').val('');
+		$('#preview-new-plcoverimage').html('');
+        $('#info-toggle-new-plcoverimage').css('margin-left','unset');
+        $('#new-playlist-tags').css('margin-top', '2.5em');
+        $('#new-playlist-genre').val('');
+		$('#new-playlist-modal').modal();
+	});
+    $('#new-playlist-modal').on('shown.bs.modal', function() {
+        setTimeout(function() {
+            $('#new-playlist-name').focus();
+        }, DEFAULT_TIMEOUT);
+    });
+	// Playlist search
 	$('#pl-filter').keyup(function(e){
 		if (!showSearchResetPl) {
-			$('#searchResetPl').show();
+			$('#btn-pl-search-reset').show();
 			showSearchResetPl = true;
 		}
 
@@ -976,37 +1098,359 @@ jQuery(document).ready(function($) { 'use strict';
 			var count = 0;
 
 			if (filter == '') {
-				$("#searchResetPl").hide();
+				$('#btn-pl-search-reset').hide();
 				showSearchResetPl = false;
 			}
 
-			$('.playlist li').each(function(){
+			$('.database-playlist li').each(function(){
 				if ($(this).text().search(new RegExp(filter, 'i')) < 0) {
 					$(this).hide();
-				}
-				else {
+				} else {
 					$(this).show();
 					count++;
 				}
 			});
+
 		    var s = (count == 1) ? '' : 's';
-			$('#container-playlist').scrollTo(0, 200);
-		}, PLSEARCH_TIMEOUT);
+            lazyLode('playlist');
+            $('#database-playlist').scrollTo(0, 200);
+
+		}, SEARCH_TIMEOUT);
 	});
-	$('#searchResetPl').click(function(e) {
-		$("#searchResetPl").hide();
+	$('#btn-pl-search-reset').click(function(e) {
+		$('.database-playlist li').css('display', 'inline-block');
+        $("#btn-pl-search-reset").hide();
 		showSearchResetPl = false;
-		$('.playlist li').css('display', 'block');
+	});
+    // Playlist view context menu
+	$('.database-playlist').on('click', '.cover-menu', function(e) {
+        var pos = $(this).parents('li').index();
+        var path = $(this).parents('li').data('path');
+
+        UI.dbEntry[0] = path;
+        UI.playlistPos = pos;
+		storePlaylistPos(UI.playlistPos)
+
+        $('#' + UI.dbEntry[3]).removeClass('active');
+        UI.dbEntry[3] = $(this).parents('li').attr('id');
+        $(this).parents('li').addClass('active');
+	});
+    // Create new playlist
+    $('#btn-create-playlist').click(function(e){
+		if ($('#new-playlist-name').val().trim() == '') {
+			notify(NOTIFY_TITLE_ALERT, 'blank_entries', 'Playlist not created.');
+		} else {
+            var path = {'name': $('#new-playlist-name').val().trim(), 'genre': $('#new-playlist-genre').val().trim()};
+            notify(NOTIFY_TITLE_INFO, 'creating_playlist');
+            $.post('command/playlist.php?cmd=new_playlist', {'path': path}, function() {
+                notify(NOTIFY_TITLE_INFO, 'new_playlist', NOTIFY_DURATION_SHORT);
+                $('#btn-pl-refresh').click();
+            }, 'json');
+		}
+	});
+    // Update playlist
+	$('#btn-update-playlist').click(function(e){
+		if ($('#edit-playlist-name').val().trim() == '') {
+			notify(NOTIFY_TITLE_ALERT, 'blank_entries', 'Playlist not updated.');
+		} else {
+            var items = [];
+            $('#playlist-items li').each(function() {
+                items.push($(this).data('path'));
+            });
+            var path = {
+                'name': $('#edit-playlist-name').val().trim(),
+                'genre': $('#edit-playlist-genre').val().trim(),
+                'items': items
+            };
+            notify(NOTIFY_TITLE_INFO, 'updating_playlist');
+            $.post('command/playlist.php?cmd=upd_playlist', {'path': path}, function() {
+                notify(NOTIFY_TITLE_INFO, 'upd_playlist', NOTIFY_DURATION_SHORT);
+            }, 'json');
+		}
+	});
+    // Delete playlist
+	$('#btn-del-playlist').click(function(e){
+        $.post('command/playlist.php?cmd=del_playlist', {'path': UI.dbEntry[0]}, function() {
+            notify(NOTIFY_TITLE_INFO, 'del_playlist', NOTIFY_DURATION_SHORT);
+            $('#btn-pl-refresh').click();
+        });
+	});
+    // Delete/Move playlist items(s)
+    $('#btn-delete-plitem, #btn-move-plitem').click(function(e){
+        $('#pl-item-' + (UI.dbEntry[0] + 1)).removeClass('active');
+
+        if ($(this).attr('id') == 'btn-delete-plitem') {
+            var beg_pos = $('#delete-playlist-item-begpos').val() - 1;
+            var end_pos = $('#delete-playlist-item-endpos').val() - 1;
+        } else {
+            var beg_pos = $('#move-playlist-item-begpos').val() - 1;
+            var end_pos = $('#move-playlist-item-endpos').val() - 1;
+            var new_pos = $('#move-playlist-item-newpos').val() - 1;
+        }
+        var num_items = end_pos - beg_pos + 1;
+
+        // Convert lines to array
+        var items = [];
+        $('#playlist-items li').each(function(){
+            items.push($(this).prop('outerHTML'));
+        });
+
+        if ($(this).attr('id') == 'btn-delete-plitem') {
+            // Delete array items
+            items.splice(beg_pos, num_items);
+        } else {
+            // Move array items
+            var moved;
+            items.splice.apply(items, [new_pos, 0].concat(moved = items.splice(beg_pos, num_items)));
+        }
+
+        // Convert back to lines
+        var element = document.getElementById('playlist-items');
+        element.innerHTML = '';
+        var lines = '';
+        for (i = 0; i < items.length; i++) {
+            lines += items[i];
+        }
+        element.innerHTML = lines;
+
+        // For max= attribute in the Delete/Move <input> elements
+        UI.dbEntry[4] = items.length;
+
+        // Resequence id's
+        var i = 1;
+        $('#playlist-items li').each(function(){
+            $(this).attr('id', 'pl-item-' + i.toString());
+            i++;
+        });
+
+        $('#delete-playlist-item, #move-playlist-item').hide();
+        $('#playlist-items').css('margin-top', '0');
 	});
 
-    // library search
-    // NOTE: This performs typedown search and a special year or year range search
-	$('#lib-album-filter').keyup(function(e){
-		e.preventDefault();
+    //
+    // MISCELLANEOUS
+    //
+    // Saved Searches (Tag/Album view)
+    $('#saved-search-modal').on('shown.bs.modal', function(e) {
+        setTimeout(function() {
+            $('#saved-search-items li').removeClass('active');
+            updateSavedSearchModal();
+        }, DEFAULT_TIMEOUT);
+	});
+    // Click Subset item
+    $('#saved-search-items').on('click', '.saved-search-item', function(e) {
+        // Store item index for use in context menu
+        UI.dbEntry[0] = $('#saved-search-items .saved-search-item').index(this);
+        // Don't display context menu for active item since it can't be deleted
+        if ($('#saved-search-item-' + (UI.dbEntry[0] + 1).toString()).data('name') == SESSION.json['lib_active_search']) {
+            return false;
+        } else {
+            // Hide delete option for LIB_FULL_LIBRARY which will always be item 0
+            UI.dbEntry[0] == 0 ? $('#menu-item-delete-saved-search').hide() : $('#menu-item-delete-saved-search').show();
+        	$('#saved-search-items li').removeClass('active');
+            $('#saved-search-item-' + (UI.dbEntry[0] + 1).toString()).addClass('active');
+        }
+    });
+    // Activate or Delete saved search
+    $('#context-menu-saved-search-contents a').click(function(e) {
+        var cmd = $(this).data('cmd');
+        var name = $('#saved-search-item-' + (UI.dbEntry[0] + 1).toString()).data('name');
+        if (cmd == 'activate_saved_search') {
+            SESSION.json['lib_active_search'] = name;
+            $.post('command/music-library.php?cmd=' + cmd, {'name': name}, function(data) {
+                applyLibFilter(data['filter_type'], data['filter_str'])
+                updateSavedSearchModal();
+            }, 'json');
+        } else {
+            // Delete
+            $.post('command/music-library.php?cmd=' + cmd, {'name': name}, function() {
+                updateSavedSearchModal();
+            });
+        }
+	});
+    // Save search
+    $('#btn-save-search').click(function(e) {
+        var name = $('#saved-search-name').val().trim();
+        if (name == '') {
+            notify(NOTIFY_TITLE_ALERT, 'search_name_blank');
+        } else {
+            e.stopImmediatePropagation();
+            $.post('command/music-library.php?cmd=create_saved_search', {'name': name});
+            // Allow worker job to complete
+            setTimeout(function() {
+    			updateSavedSearchModal();
+    		}, 2000);
 
-		if (!showSearchResetLib) {
-			$('#searchResetLib').show();
-			showSearchResetLib = true;
+        }
+    });
+    // Update Saved Search items
+    function updateSavedSearchModal() {
+        // Name input and current search criteria
+        $('#saved-search-name').val('');
+        $('#lib-search-criteria').text(SESSION.json['library_flatlist_filter']
+            + (SESSION.json['library_flatlist_filter_str'] == '' ? '' : ': ' + SESSION.json['library_flatlist_filter_str']));
+        // Subset list
+        $.post('command/music-library.php?cmd=get_saved_searches', function(data) {
+            var element = document.getElementById('saved-search-items');
+            element.innerHTML = '';
+            if (data.length > 0) {
+                var output = '';
+                for (i = 0; i < data.length; i++) {
+                    var active = SESSION.json['lib_active_search'] == data[i]['name'] ? '<span id="saved-search-item-check" style="float:right;"><i class="fa-solid fa-sharp fa-check"></i></span>' : '';
+                    output += '<li id="saved-search-item-' + (i + 1)
+                        + '" class="saved-search-item" data-toggle="context" data-target="#context-menu-saved-search-contents" '
+                        + 'data-name="' + data[i]['name'] + '">';
+                    output += '<span class="saved-search-item-line1">' + data[i]['name'] + active + '</span>';
+                    output += '<span class="saved-search-item-line2">' + data[i]['filter'] + '</span>';
+                    output += '</li>';
+                }
+            } else {
+                // Error: No saved searches found (item 1 LIB_FULL_LIBRARY should always exist
+            }
+            element.innerHTML = output;
+        }, 'json');
+    }
+    // Clear active search
+    function clearActiveSearch() {
+        SESSION.json['lib_active_search'] = 'None';
+        $.post('command/music-library.php?cmd=clear_active_search');
+    }
+
+    // Search operators
+    // NOTE: Add 'starts_with' operator when bump to MPD 0.24
+    function setSearchStr(str) {
+        str = str.trim();
+
+        if ($.inArray(str.slice(0, 2), GLOBAL.searchOperators) && str.slice(2, 3) == ' ') {
+            str = str.slice(0, 3) + "'" +  str.slice(3) + "'";
+        } else {
+            str = "contains '" + str + "'";
+        }
+        return str;
+    }
+
+    // Advanced search (Folder/Tag/Album views)
+	$('#db-search-submit').click(function(e) {
+        var searchType = '';
+		var searchStr = '';
+
+        if ($('#dbsearch-predefined-filters').val() != '') {
+            // NOTE: This input field is hidden in Folder view because that view does not support predefined filters
+            searchType = $('#dbsearch-predefined-filters').val().trim().toLowerCase();
+            searchStr = '';
+        } else if ($('#dbsearch-alltags').val() != '') {
+            searchType = 'any';
+            searchStr = currentView == 'folder' ? $('#dbsearch-alltags').val().trim() : '(any ' + setSearchStr($('#dbsearch-alltags').val()) + ')';
+		} else {
+            searchType = 'specific'; // NOTE: This searchType is for Folder view only
+            GLOBAL.searchTags.forEach(function(tag) {
+                searchStr += $('#dbsearch-' + tag).val() == '' ? '' : ' AND (' + tag + ' ' + setSearchStr($('#dbsearch-' + tag).val()) + ')';
+            });
+
+			if (searchStr != '') {
+                searchStr = searchStr.slice(5);
+			} else {
+                searchType = '';
+            }
+		}
+
+        if (searchType == '' && searchStr == '') {
+            notify(NOTIFY_TITLE_ALERT, 'search_fields_empty', 'Search not performed.');
+        } else {
+            if (currentView == 'folder') {
+                clearActiveSearch();
+                // NOTE: searchType will be 'any' or 'specific'
+                $.getJSON('command/music-library.php?cmd=search' + '&tagname=' + searchType, {'query': searchStr}, function(data) {
+                    renderFolderView(data, '', searchStr);
+                });
+            } else if (currentView == 'tag' || currentView == 'album') {
+                if (searchType == 'any' || searchType == 'specific') {
+                    // Search by tags
+                    clearActiveSearch();
+                    applyLibFilter('tags', searchStr);
+                } else {
+                    // Search by predefined filter
+                    var parts = splitStringAtFirstSpace(searchType);
+                    if (parts.length == 2) { // Two arg filter
+                        searchType = parts[0];
+                        searchStr = parts[1];
+                    }
+                    if (GLOBAL.allFilters.includes(searchType)) {
+                        clearActiveSearch();
+                        applyLibFilter(searchType, searchStr);
+                    } else {
+                        notify(NOTIFY_TITLE_ALERT, 'predefined_filter_invalid', 'Search not performed');
+                    }
+                }
+            }
+        }
+	});
+    $('#db-search-reset').click(function(e) {
+        var specificTags = '';
+        GLOBAL.searchTags.forEach(function(tag) {
+            specificTags += '#dbsearch-' + tag + ',';
+        });
+        specificTags = specificTags.slice(0, -1);
+        $('#dbsearch-predefined-filters, #dbsearch-alltags,' + specificTags).val('');
+	});
+	$('#dbsearch-modal').on('shown.bs.modal', function(e) {
+        setTimeout(function() {
+            currentView == 'folder' ? $('#predefined-filters-div').hide() : $('#predefined-filters-div').show();
+    		$('#db-search-results').css('font-weight', 'normal');
+    		$('.database li').removeClass('active');
+        }, DEFAULT_TIMEOUT);
+	});
+
+    // Library Tag/Album search
+    // NOTE: The keydown event was added to work around an issue where Firefox steals the Enter key and keyup never happens.
+    $('#lib-album-filter').on('keydown keyup', function(e){
+        //console.log(e);
+        if (e.type == 'keyup') {
+            e.preventDefault();
+        }
+
+        $('#lib-album-filter').val().length > 0 ? $('#searchResetLib').show() : $('#searchResetLib').hide();
+
+        if (e.key == 'Enter' && $('#lib-album-filter').val().length > 0) {
+            clearActiveSearch();
+            $('#lib-album-filter').blur();
+
+            // Parse search string
+            var searchStr = $(this).val().trim().toLowerCase();
+            var filter = splitStringAtFirstSpace(searchStr);
+            if (filter.length == 1) {
+                filter[1] = '';
+            }
+
+            // Apply filter
+            if (GLOBAL.allFilters.includes(filter[0])) {
+                if (GLOBAL.twoArgFilters.includes(filter[0])) {
+                    applyLibFilter(filter[0], filter[1]);
+                } else {
+                    applyLibFilter(filter[0]);
+                }
+            } else {
+                // Default to filterType = any
+                applyLibFilter('any', filter[0] + (filter[1] ? ' ' + filter[1] : ''));
+            }
+
+            // Close menu
+            $('#viewswitch').click();
+        }
+	});
+	$('#searchResetLib').click(function(e) {
+		e.preventDefault();
+		document.getElementById("lib-album-filter").focus();
+        $('#lib-album-filter').val('');
+        $('#searchResetLib').hide();
+		return false;
+	});
+
+    // Queue search
+	$('#playqueue-filter').keyup(function(e){
+		if (!showSearchResetPq) {
+			$('#searchResetPlayqueue').show();
+			showSearchResetPq = true;
 		}
 
 		clearTimeout(searchTimer);
@@ -1017,12 +1461,11 @@ jQuery(document).ready(function($) { 'use strict';
 			var count = 0;
 
 			if (filter == '') {
-				$('#searchResetLib').hide();
-				showSearchResetLib = false;
-                $('#searchResetLib').click();
+				$("#searchResetPlayqueue").hide();
+				showSearchResetPq = false;
 			}
 
-			$('.albumslist li').each(function() {
+			$('.playqueue li').each(function(){
 				if ($(this).text().search(new RegExp(filter, 'i')) < 0) {
 					$(this).hide();
 				}
@@ -1031,84 +1474,20 @@ jQuery(document).ready(function($) { 'use strict';
 					count++;
 				}
 			});
-			$('.albumcovers li').each(function() {
-				if ($(this).text().search(new RegExp(filter, 'i')) < 0) {
-					$(this).hide();
-				}
-				else {
-					$(this).show();
-				}
-			});
-			var s = (count == 1) ? '' : 's';
-			if (filter != '') {
-				$('#menu-header').text((+count) + ' albums found');
-				GLOBAL.searchLib = $('#menu-header').text(); // Save for #menu-header
-			}
-			if ($('.tag-view-btn').hasClass('active')) {
-				lazyLode('tag');
-			}
-			else {
-				lazyLode('album');
-				$('#bottom-row').css('display', '');
-			}
-
-		    $('#albumcovers .lib-entry').removeClass('active');
-		    $('#albumsList .lib-entry').removeClass('active');
-			$('#lib-albumcover').css('height', '100%');
-			UI.libPos.fill(-3);
-		}, LIBSEARCH_TIMEOUT);
-
-        var filter = $(this).val().trim();
-		if (e.key == 'Enter' || filter.slice(filter.length - 2) == '!r') {
-            if (filter.slice(filter.length - 2) == '!r') {
-                filter = filter.slice(0, filter.length - 2);
-            }
-            LIB.filters.year = filter.split('-').map( Number ); // [year 1][year 2 if present]
-            if (LIB.filters.year[0]) {
-			    LIB.recentlyAddedClicked = false;
-				LIB.filters.albums.length = 0;
-				$('#menu-header').text('Albums from ' + LIB.filters.year[0] + (LIB.filters.year[1] ? ' to ' + LIB.filters.year[1] : ''));
-				GLOBAL.searchLib = $('#menu-header').text(); // Save for #menu-header
-				$('.view-recents span').hide();
-				$('.view-all span').hide();
-				UI.libPos.fill(-2);
-				filterLib();
-			    renderAlbums();
-				$('#lib-album-filter').blur();
-				$('#viewswitch').click();
-				if (currentView == 'tag' && SESSION.json['tag_view_covers'] == 'Yes') {
-					lazyLode('tag');
-				}
-				else if (currentView == 'album') {
-					lazyLode('album');
-				}
-			}
-			else {
-				LIB.filters.year = '';
-			}
-			$('#lib-album-filter').blur();
-			$('#viewswitch').click();
-		}
+		    var s = (count == 1) ? '' : 's';
+			$('#container-playqueue').scrollTo(0, 200);
+		}, SEARCH_TIMEOUT);
+	});
+	$('#searchResetPlayqueue').click(function(e) {
+		$("#searchResetPlayqueue").hide();
+		showSearchResetPq = false;
+		$('.playqueue li').css('display', 'block');
 	});
 
-	$('#searchResetLib').click(function(e) {
-		e.preventDefault();
-		GLOBAL.searchLib = '';
-		setLibMenuHeader();
-		LIB.filters.albums.length = 0;
-		UI.libPos.fill(-2);
-		storeLibPos(UI.libPos);
-	    clickedLibItem(undefined, undefined, LIB.filters.albums, renderAlbums);
-		$("#searchResetLib").hide();
-		showSearchResetLib = false;
-		document.getElementById("lib-album-filter").focus();
-		return false;
-	});
-
-	// playback history search
+	// Playback history search
 	$('#ph-filter').keyup(function(e){
 		if (!showSearchResetPh) {
-			$('#searchResetPh').show();
+			$('#search-reset-ph').show();
 			showSearchResetPh = true;
 		}
 
@@ -1122,8 +1501,7 @@ jQuery(document).ready(function($) { 'use strict';
 			$('.playhistory li').each(function(){
 				if ($(this).text().search(new RegExp(filter, 'i')) < 0) {
 					$(this).hide();
-				}
-				else {
+				} else {
 					$(this).show();
 					count++;
 				}
@@ -1131,221 +1509,315 @@ jQuery(document).ready(function($) { 'use strict';
 			var s = (count == 1) ? '' : 's';
 			if (filter != '') {
 				$('#ph-filter-results').html((+count) + '&nbsp;item' + s);
-			}
-			else {
-				$('#ph-filter-results').html('');
+                $('#ph-filter-results').show();
+			} else {
+				$('#ph-filter-results').hide();
 			}
 			$('#container-playhistory').scrollTo(0, 200);
-		}, PHSEARCH_TIMEOUT);
+		}, SEARCH_TIMEOUT);
 	});
-	$('#searchResetPh').click(function(e) {
-		$("#searchResetPh").hide();
+	$('#search-reset-ph').click(function(e) {
+		$("#search-reset-ph").hide();
 		showSearchResetPh = false;
 		$('.playhistory li').css('display', 'list-item');
-		$('#ph-filter-results').html('');
+		$('#ph-filter-results').hide();
+        $('#ph-filter').val('');
 	});
 
-	// browse, radio action menus
-	$('.database, .database-radio').on('click', '.db-action', function(e) {
-		UI.dbEntry[0] = $(this).parent().attr('data-path');
-		UI.dbEntry[3] = $(this).parent().attr('id'); // used in .context-menu a click handler to remove highlight
-		$('#db-search-results').css('font-weight', 'normal');
-		$('.database li, .database-radio li').removeClass('active');
-		$(this).parent().addClass('active');
-		// set new pos
-		UI.radioPos = parseInt(UI.dbEntry[3].substr(3));
-		storeRadioPos(UI.radioPos)
-	});
+	// Buttons on modals
+	$('.btn-delete-playqueue-item').click(function(e){
+		var begPos = $('#delete-playqueue-item-begpos').val() - 1;
+		var endPos = $('#delete-playqueue-item-endpos').val() - 1;
 
-	// remove highlight from station logo
-	$('.btnlist-top-ra').click(function(e) {
-		//console.log('click .btnlist-top-ra')
-		if (UI.dbEntry[3].substr(0, 3) == 'db-') {
-			$('#' + UI.dbEntry[3]).removeClass('active');
-		}
-	});
+		// NOTE: format for single or multiple, endPos not inclusive so must be bumped for multiple
+		if (begPos == endPos) {
+            var cmd = 'delete_playqueue_item&range=' + begPos;
+        } else {
+            var cmd = 'delete_playqueue_item&range=' + begPos + ':' + (endPos + 1);
+        }
 
-	// buttons on modals
-	$('.btn-del-savedpl').click(function(e){
-		mpdDbCmd('delsavedpl', UI.dbEntry[0]);
-		notify('delsavedpl');
+        $.post('command/queue.php?cmd=' + cmd);
+        notify(NOTIFY_TITLE_INFO, 'queue_item_removed', NOTIFY_DURATION_SHORT);
 	});
-	$('.btn-new-station').click(function(e){
-		if ($('#new-station-pls-name').val().trim() == '' || $('#new-station-url').val().trim() == '') {
-			notify('blankentries', 'Station not created');
-		}
-		else {
-			mpdDbCmd('newstation', {
-                'pls_name': $('#new-station-pls-name').val(),
-                'url': $('#new-station-url').val(),
-                'display_name': $('#new-station-display-name').val(),
-                'genre': $('#new-station-genre').val(),
-                'broadcaster': $('#new-station-broadcaster').val(),
-                'language': $('#new-station-language').val(),
-                'country': $('#new-station-country').val(),
-                'region': $('#new-station-region').val(),
-                'bitrate': $('#new-station-bitrate').val(),
-                'format': $('#new-station-format').val()
-            });
-		}
-	});
-	$('.btn-upd-station').click(function(e){
-		if ($('#edit-station-pls-name').val().trim() == '' || $('#edit-station-url').val().trim() == '') {
-			notify('blankentries', 'Station not updated');
-		}
-		else {
-			//mpdDbCmd('updstation', $('#edit-station-pls-name').val() + '\n' + $('#edit-station-url').val() + '\n');
-            mpdDbCmd('updstation', {
-                'id': GLOBAL.editStationId,
-                'pls_name': $('#edit-station-pls-name').val(),
-                'url': $('#edit-station-url').val(),
-                'display_name': $('#edit-station-display-name').val(),
-                'genre': $('#edit-station-genre').val(),
-                'broadcaster': $('#edit-station-broadcaster').val(),
-                'language': $('#edit-station-language').val(),
-                'country': $('#edit-station-country').val(),
-                'region': $('#edit-station-region').val(),
-                'bitrate': $('#edit-station-bitrate').val(),
-                'format': $('#edit-station-format').val()
-            });
-		}
-	});
-	$('.btn-del-station').click(function(e){
-		mpdDbCmd('delstation', UI.dbEntry[0]);
-	});
-	$('.btn-delete-plitem').click(function(e){
-		var cmd = '';
-		var begpos = $('#delete-plitem-begpos').val() - 1;
-		var endpos = $('#delete-plitem-endpos').val() - 1;
-		// NOTE: format for single or multiple, endpos not inclusive so must be bumped for multiple
-		begpos == endpos ? cmd = 'delplitem&range=' + begpos : cmd = 'delplitem&range=' + begpos + ':' + (endpos + 1);
-		notify('remove');
-        $.get('command/moode.php?cmd=' + cmd);
-
-	});
-	// speed btns on delete modal
+	// Speed btns on delete modal
 	$('#btn-delete-setpos-top').click(function(e){
-		$('#delete-plitem-begpos').val(1);
+		$('#delete-playqueue-item-begpos').val(1);
 		return false;
 	});
 	$('#btn-delete-setpos-bot').click(function(e){
-		$('#delete-plitem-endpos').val(UI.dbEntry[4]);
+		$('#delete-playqueue-item-endpos').val(GLOBAL.playQueueLength);
 		return false;
 	});
-	$('.btn-move-plitem').click(function(e){
-		var cmd = '';
-		var begpos = $('#move-plitem-begpos').val() - 1;
-		var endpos = $('#move-plitem-endpos').val() - 1;
-		var newpos = $('#move-plitem-newpos').val() - 1;
-		// NOTE: format for single or multiple, endpos not inclusive so must be bumped for multiple
-		// move begpos newpos or move begpos:endpos newpos
-		begpos == endpos ? cmd = 'moveplitem&range=' + begpos + '&newpos=' + newpos : cmd = 'moveplitem&range=' + begpos + ':' + (endpos + 1) + '&newpos=' + newpos;
-		notify('move');
-        $.get('command/moode.php?cmd=' + cmd);
+	$('.btn-move-playqueue-item').click(function(e){
+		var begPos = $('#move-playqueue-item-begpos').val() - 1;
+		var endPos = $('#move-playqueue-item-endpos').val() - 1;
+        var newPos = $('#move-playqueue-item-newpos').val() - 1;
+        var maxPos = $('#move-playqueue-item-newpos').attr('max') - 1;
+		if (begPos == endPos) {
+            var cmd = 'move_playqueue_item&range=' + begPos + '&newpos=' + newPos;
+        } else {
+            // The endPos item is not included in range so must be bumped by 1
+            // When newPos = maxPos bump back by endPos - begPos
+            newPos = newPos != maxPos ? newPos : newPos - (endPos - begPos);
+            var cmd = 'move_playqueue_item&range=' + begPos + ':' + (endPos + 1) + '&newpos=' + newPos;
+        }
+
+        $.post('command/queue.php?cmd=' + cmd);
+        notify(NOTIFY_TITLE_INFO, 'queue_item_moved', NOTIFY_DURATION_SHORT);
 	});
-	// speed btns on move modal
+	// Speed btns on move modal
 	$('#btn-move-setpos-top').click(function(e){
-		$('#move-plitem-begpos').val(1);
+		$('#move-playqueue-item-begpos').val(1);
 		return false;
 	});
 	$('#btn-move-setpos-bot').click(function(e){
-		$('#move-plitem-endpos').val(UI.dbEntry[4]);
+		$('#move-playqueue-item-endpos').val(GLOBAL.playQueueLength);
 		return false;
 	});
 	$('#btn-move-setnewpos-top').click(function(e){
-		$('#move-plitem-newpos').val(1);
+		$('#move-playqueue-item-newpos').val(1);
 		return false;
 	});
 	$('#btn-move-setnewpos-bot').click(function(e){
-		$('#move-plitem-newpos').val(UI.dbEntry[4]);
+		$('#move-playqueue-item-newpos').val(GLOBAL.playQueueLength);
 		return false;
 	});
 
-	// speed buttons on plaback history log
-	$('.ph-firstPage').click(function(e){
+	// Speed buttons on playback history log
+	$('#ph-first-page').click(function(e){
 		$('#container-playhistory').scrollTo(0 , 200);
 	});
-	$('.ph-lastPage').click(function(e){
+	$('#ph-last-page').click(function(e){
 		$('#container-playhistory').scrollTo('100%', 200);
 	});
 
-	// playback panel context menu
-	$('.playback-context-menu').click(function(e) {
-		var color = $('.consume').hasClass('btn-primary') ? 'var(--accentxts)' : 'inherit';
-		$('#consume-menu-icon').css('color', color);
-	});
-
-	// playbar coverview btn
+	// Playbar coverview btn
 	$('.coverview').on('click', function(e) {
 		e.stopImmediatePropagation();
 		screenSaver('1');
 	});
 
     // Coverview playlist
-	$('#cv-playlist-btn').on('click', function(e) {
-        $('#cv-playlist').toggle();
+	$('#cv-playqueue-btn').on('click', function(e) {
+        $('#cv-playqueue').toggle();
 
-        if ($('#cv-playlist').css('display') == 'block') {
-            setTimeout(function() {
-                customScroll('pbpl', parseInt(MPD.json['song']));
-            }, SCROLLTO_TIMEOUT);
+        if ($('#cv-playqueue').css('display') == 'block') {
+            $('#cv-playqueue ul').html($('#playqueue ul').html());
+            if (SESSION.json['playlist_art'] == 'Yes') {
+                lazyLode('cv-playqueue');
+            }
+            customScroll('cv-playqueue', parseInt(MPD.json['song']));
 
-            GLOBAL.playbarPlaylistTimer = setTimeout(function() {
-                $('#cv-playlist').hide();
-            }, 20000);
+            GLOBAL.cvQueueTimer = setTimeout(function() {
+                $('#cv-playqueue ul').html('');
+                $('#cv-playqueue').hide();
+            }, CV_QUEUE_TIMEOUT);
         }
         else {
             e.preventDefault();
-            window.clearTimeout(GLOBAL.playbarPlaylistTimer);
+            $('#cv-playqueue ul').html('');
+            window.clearTimeout(GLOBAL.cvQueueTimer);
         }
 	});
 
-	// Disconnect active renderer
-	//$('.disconnect-renderer').live('click', function(e) {
+	// Disconnect renderer
     $(document).on('click', '.disconnect-renderer', function(e) {
-		var job = $(this).data('job');
-        $.post('command/moode.php?cmd=disconnect-renderer', {'job':job});
+		notify(NOTIFY_TITLE_INFO, 'renderer_disconnect');
+        $.post('command/renderer.php?cmd=disconnect_renderer', {'job': $(this).data('job')});
+	});
+    $(document).on('click', '.disconnect-spotify', function(e) {
+		notify(NOTIFY_TITLE_INFO, 'renderer_disconnect');
+        $.post('command/renderer.php?cmd=disconnect_renderer', {'job': $(this).data('job')});
+	});
+    // Turn off renderer
+    $(document).on('click', '.turnoff-renderer', function(e) {
+		notify(NOTIFY_TITLE_INFO, 'renderer_turnoff');
+        $.post('command/renderer.php?cmd=disconnect_renderer', {'job': $(this).data('job')});
+	});
+    // Turn off multiroom receiver
+    $(document).on('click', '.turnoff-receiver', function(e) {
+		notify(NOTIFY_TITLE_INFO, 'trx_turning_receiver_off');
+        $.post('command/renderer.php?cmd=disconnect_renderer', {'job': $(this).data('job')});
 	});
 
-    // Screen saver (CoverView) reset (r642 variant)
-    $('#screen-saver, #playback-panel, #library-panel, #folder-panel, #radio-panel, #menu-bottom').click(function(e) {
-        //console.log('resetscnsaver: timeout (' + SESSION.json['scnsaver_timeout'] + ', currentView: ' + currentView + ')');
-        if ($(this).attr('id') == 'menu-bottom') {
+    // First use help
+    $('#playback-firstuse-help').click(function(e) {
+        $('#playback-firstuse-help').css('display', '');
+        SESSION.json['first_use_help'] = 'n,' + SESSION.json['first_use_help'].split(',')[1];
+        $.post('command/cfg-table.php?cmd=upd_cfg_system', {'first_use_help': SESSION.json['first_use_help']});
+    });
+    $('#playbar-firstuse-help').click(function(e) {
+        $('#playbar-firstuse-help').css('display', '');
+        SESSION.json['first_use_help'] = SESSION.json['first_use_help'].split(',')[0] + ',n';
+        $.post('command/cfg-table.php?cmd=upd_cfg_system', {'first_use_help': SESSION.json['first_use_help']});
+    });
+
+    // Track info for Playback
+    $('#extra-tags-display').click(function(e) {
+        if ($('#currentsong').html() != '') {
+            var cmd = MPD.json['artist'] == 'Radio station' ? 'station_info' : 'track_info';
+            audioInfo(cmd, MPD.json['file']);
+        }
+    });
+
+    // Audio info Track/Playback
+    $(document).on('click', '#audioinfo-track', function(e) {
+		$('#audioinfo-modal').removeClass('playback').addClass('track');
+	});
+    $(document).on('click', '#audioinfo-playback', function(e) {
+		$('#audioinfo-modal').removeClass('track').addClass('playback');
+	});
+
+    // CoverView screen saver reset
+    $('#screen-saver, #playback-panel, #library-panel, #folder-panel, #radio-panel, #playlist-panel, #panel-footer').click(function(e) {
+        //console.log('reset_screen_saver: timeout (' + SESSION.json['scnsaver_timeout'] + ', currentView: ' + currentView + ')');
+        if ($(this).attr('id') == 'panel-footer') {
             return;
         }
 
-        if (coverView || SESSION.json['scnsaver_timeout'] != 'Never') {
+        if (GLOBAL.coverViewActive) {
 			$('body').removeClass('cv');
-			coverView = false;
+            $('body').removeClass('cvwide');
+            if (SESSION.json['show_cvpb'] == 'Yes') {
+                $('body').removeClass('cvpb');
+            }
+
             setColors();
+            if (SESSION.json['scnsaver_mode'] == 'Digital clock' || SESSION.json['scnsaver_mode'] == 'Digital clock (24-hour)' ||
+                SESSION.json['scnsaver_mode'].includes('Analog clock')) {
+				hideSSClock();
+            }
 
-            /*TEST*/$('#cv-playlist').hide();
-            /*TEST*/$('#lib-coverart-img').show();
-            /*TEST*/$('#playback-queue').css('width', '38.1%'); // Fix Playlist sometimes not being visable after returning from cv
+            // TEST: Fixes issue where some elements briefly remain on-screen when entering or returning from CoverView
+            $('#cv-playqueue ul').html('');
+            $('#cv-playqueue').hide();
+            $('#lib-coverart-img').show();
+
+            // TEST: Fixes Queue sometimes not being visible after returning from CoverView
+            UI.mobile ? $('#playback-queue').css('width', '99.9%') : $('#playback-queue').css('width', '38.1%');
             setTimeout(function() {
-                /*TEST*/$('#playback-queue').css('width', '38%'); // Restore correct width
-                customScroll('pl', parseInt(MPD.json['song']));
-            }, SCROLLTO_TIMEOUT);
+                $('#playback-queue').css('width', ''); // TEST: Restore correct width to force Queue visible
+            }, DEFAULT_TIMEOUT);
+            if (SESSION.json['playlist_art'] == 'Yes') {
+                lazyLode('playqueue');
+            }
+            customScroll('playqueue', parseInt(MPD.json['song']));
+        }
 
-            // Reset screen saver timeout global
-            setTimeout(function() { // wait a bit to allow other job that may be queued to be processed
-                $.get('command/moode.php?cmd=resetscnsaver');
-            }, 3000);
+        // Reset state
+        GLOBAL.coverViewActive = false;
+        if (SESSION.json['scnsaver_timeout'] != 'Never') {
+            $.post('command/playback.php?cmd=reset_screen_saver');
         }
     });
 
-    // First use help
-    $('#playback-firstuse-help i').click(function(e) {
-        $('#playback-firstuse-help').css('display', 'none');
-        $.post('command/moode.php?cmd=updcfgsystem', {'first_use_help': 'n,' + SESSION.json['first_use_help'].split(',')[1]});
+    // Players >>
+    $('#players-menu-item').click(function(e) {
+        notify(NOTIFY_TITLE_INFO, 'discovering_players', 'Please wait.', NOTIFY_DURATION_INFINITE);
     });
-    $('#playbar-firstuse-help i').click(function(e) {
-        $('#playbar-firstuse-help').css('display', 'none');
-        $.post('command/moode.php?cmd=updcfgsystem', {'first_use_help': SESSION.json['first_use_help'].split(',')[0] + ',n'});
+    $('#players-modal').on('shown.bs.modal', function() {
+        setTimeout(function() {
+            $('#players-submit-confirm-msg').text('');
+        }, DEFAULT_TIMEOUT);
+	});
+    $(document).on('click', '#btn-players-dropdown', function(e) {
+        $('#players-modal-body').css('padding-bottom', '5em');
+    });
+    $(document).on('click', '#players-modal', function(e) {
+        if (!$('#players-dropdown').hasClass('open')) {
+            $('#players-modal-body').css('padding-bottom', '0px');
+        }
+    });
+    $('#btn-players-submit').click(function(e) {
+        var action = $('#players-action span').text();
+        var cmd = getKeyOrValue('value', action);
+        var ipaddr = [];
+        $('#players-ul a').each(function() {
+            ipaddr.push($(this).attr('data-ipaddr'));
+        });
+        //console.log(ipaddr);
+        if (ipaddr.length > 0 && action != 'No action') {
+            if ($('#players-submit-confirm-msg').text() == '') {
+                $('#players-submit-confirm-msg').text('Click again to confirm');
+            } else {
+                $('#players-modal').modal('toggle');
+                notify(NOTIFY_TITLE_INFO, 'players_action_submit', cmd);
+                $.post('players.php?cmd=' + cmd, {'ipaddr': ipaddr});
+            }
+        }
+    });
+
+    // Multiroom Receiver control
+    $(document).on('click', '.multiroom-modal-onoff', function(e) {
+        var item = $(this).data('item');
+        var onoff = $('#multiroom-rx-' + item + '-onoff').prop('checked') === true ? 'On' : 'Off';
+        $.post('command/multiroom.php?cmd=set_rx_status', {'onoff': onoff, 'item': item}, function(data) {}, 'json');
+    });
+    $(document).on('click', '.multiroom-modal-vol', function(e) {
+        var item = $(this).data('item');
+        var volume = $('#multiroom-rx-' + item + '-vol').text();
+        $.post('command/multiroom.php?cmd=set_rx_status', {'volume': volume, 'item': item}, function(data) {}, 'json');
+        $('#multiroom-rx-' + item + '-vol').html("<div class='busy-spinner-btn-rx'>" + GLOBAL.busySpinnerSVG + "</div>");
+        setTimeout(function() {
+            $('#multiroom-rx-' + item + '-vol').text(volume);
+        }, 1000);
+    });
+    $(document).on('click', '.multiroom-modal-mute', function(e) {
+        var item = $(this).data('item');
+        var iconClass = $('#multiroom-rx-' + item + '-mute i').hasClass('fa-volume-up') ? 'fa-volume-mute' : 'fa-volume-up';
+        var mute = iconClass =='fa-volume-mute' ? 'Muted' : 'Unmuted';
+        $('#multiroom-rx-' + item + '-mute').html('<i class="fa-solid fa-sharp ' + iconClass + '"></i>');
+        $.post('command/multiroom.php?cmd=set_rx_status', {'mute': mute, 'item': item}, function(data) {}, 'json');
+    });
+
+    // Prevent click on the menu checkmark from causing default moOde cover to be displayed
+    $(document).on('click',
+        '#menu-check-cdsp, #menu-check-consume, #menu-check-repeat, #menu-check-single, #menu-check-recorder',
+        function(e) {
+             e.stopImmediatePropagation();
+        }
+    );
+
+    // CamillaDSP config menu
+    $('#dropdown-cdsp-btn').click(function(e) {
+        var ul = $('#dropdown-cdsp-menu');
+
+        // Checked item
+        $('.dropdown-cdsp-line span').remove();
+        $('#dropdown-cdsp-menu li').each(function () {
+            var configName = SESSION.json['camilladsp'] == 'off' ? 'Off' : SESSION.json['camilladsp'].slice(0, -4);
+            var selectedConfig = configName.charAt(0).toUpperCase() + configName.slice(1);
+            if ($(this).text() == selectedConfig) {
+                var selectedHTML = $('a[data-cdspconfig="' + SESSION.json['camilladsp'] + '"]').html();
+                $('a[data-cdspconfig="' + SESSION.json['camilladsp'] + '"]').html(selectedHTML +
+                    '<span id="menu-check-cdsp"><i class="fa-solid fa-sharp fa-check"></i></span>');
+            }
+        });
+
+        // First items
+        $('#dropdown-cdsp-menu li').each(function () {
+            if ($(this).text() == 'Off' ||
+                $(this).text() == 'Custom' ||
+                $(this).text() == 'Quick convolution filter' ||
+                $(this).html().includes('menu-check-cdsp')) {
+                ul.append($(this));
+            }
+        });
+        // Rest of items
+        $('#dropdown-cdsp-menu li').each(function () {
+            if ($(this).text() != 'Off' &&
+                $(this).text() != 'Custom' &&
+                $(this).text() != 'Quick convolution filter' &&
+                !$(this).html().includes('menu-check-cdsp')) {
+                ul.append($(this));
+            }
+        });
+
+        $('#dropdown-cdsp-menu').scrollTo(0, 200);
     });
 
 	// Info button (i) show/hide toggle
-	$('.info-toggle').click(function(e) {
+    $(document).on('click', '.info-toggle', function(e) {
 		var spanId = '#' + $(this).data('cmd');
 		if ($(spanId).hasClass('hide')) {
 			$(spanId).removeClass('hide');

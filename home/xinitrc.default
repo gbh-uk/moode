@@ -1,23 +1,7 @@
 #!/bin/bash
 #
-# moOde audio player (C) 2014 Tim Curtis
-# http://moodeaudio.org
-#
-# This Program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3, or (at your option)
-# any later version.
-#
-# This Program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
-#
-# 2020-04-24 TC moOde 6.5.0
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright 2014 The moOde audio player project / Tim Curtis
 #
 
 # Turn off display power management
@@ -27,8 +11,22 @@ xset -dpms
 xset s 600
 
 # Capture screen size
-SCREENSIZE="$(fbset -s | awk '$1 == "geometry" { print $2","$3 }')"
+fgrep "#dtoverlay=vc4-kms-v3d" /boot/firmware/config.txt
+if [ $? -ne 0 ]; then
+    SCREENSIZE="$(kmsprint | awk '$1 == "FB" {print $3}' | awk -F"x" '{print $1","$2}')"
+else
+    SCREENSIZE="$(fbset -s | awk '$1 == "geometry" {print $2","$3}')"
+fi
+
+# Clear browser cache
+$(/var/www/util/sysutil.sh clearbrcache)
 
 # Launch chromium browser
-# --disk-cache-dir=/dev/null
-chromium-browser --app=http://localhost/ --window-size=$SCREENSIZE --window-position=0,0 --no-first-run -enable-features=OverlayScrollbar --disable-infobars --disable-session-crashed-bubble
+chromium-browser --app="http://localhost/" \
+--window-size="$SCREENSIZE" \
+--window-position="0,0" \
+--enable-features="OverlayScrollbar" \
+--no-first-run \
+--disable-infobars \
+--disable-session-crashed-bubble \
+--kiosk

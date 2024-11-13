@@ -1,65 +1,123 @@
 #!/bin/bash
 #
-# moOde audio player (C) 2014 Tim Curtis
-# http://moodeaudio.org
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright 2014 The moOde audio player project / Tim Curtis
 #
-# This Program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3, or (at your option)
-# any later version.
-#
-# This Program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
-#
-# 2019-11-24 TC moOde 6.4.0
-#
+
+LOGFILE="/var/log/moode_spotevent.log"
+DEBUG=$(sudo moodeutl -d -gv debuglog)
+SPOTMETA_FILE="/var/local/www/spotmeta.txt"
+
+debug_log () {
+	if [[ $DEBUG == '0' ]]; then
+		return 0
+	fi
+	echo "$1"
+	TIME=$(date +'%Y%m%d %H%M%S')
+	echo "$TIME $1" >> $LOGFILE
+}
+
+PLAYER_EVENTS=(
+session_connected
+session_disconnected
+track_changed
+)
+
+MATCH=0
+for EVENT in "${PLAYER_EVENTS[@]}"
+do
+	if [[ $PLAYER_EVENT == $EVENT ]]; then
+		MATCH=1
+		debug_log "Process: "$PLAYER_EVENT
+	fi
+done
+# Exit and log if not a match
+if [[ $MATCH == 0 ]]; then
+	debug_log "Logged:  "$PLAYER_EVENT
+	exit 0
+fi
 
 SQLDB=/var/local/www/db/moode-sqlite3.db
-
-RESULT=$(sqlite3 $SQLDB "select value from cfg_system where param='alsavolume_max' or param='alsavolume' or param='amixname' or param='mpdmixer' or param='rsmafterspot' or param='inpactive'")
+RESULT=$(sqlite3 $SQLDB "SELECT value FROM cfg_system WHERE param IN ('volknob','alsavolume_max','alsavolume','amixname','mpdmixer','camilladsp_volume_sync','rsmafterspot','inpactive','volknob_mpd','multiroom_tx')")
 readarray -t arr <<<"$RESULT"
-ALSAVOLUME_MAX=${arr[0]}
-ALSAVOLUME=${arr[1]}
-AMIXNAME=${arr[2]}
-MPDMIXER=${arr[3]}
-RSMAFTERSPOT=${arr[4]}
-INPACTIVE=${arr[5]}
+VOLKNOB=${arr[0]}
+ALSAVOLUME_MAX=${arr[1]}
+ALSAVOLUME=${arr[2]}
+AMIXNAME=${arr[3]}
+MPDMIXER=${arr[4]}
+CDSP_VOLSYNC=${arr[5]}
+RSMAFTERSPOT=${arr[6]}
+INPACTIVE=${arr[7]}
+VOLKNOB_MPD=${arr[8]}
+MULTIROOM_TX=${arr[9]}
+RX_ADDRESSES=$(sudo moodeutl -d -gv rx_addresses)
 
 if [[ $INPACTIVE == '1' ]]; then
 	exit 1
 fi
 
-if [[ $PLAYER_EVENT == "start" ]]; then
+if [[ $PLAYER_EVENT == "session_connected" ]]; then
+	$(sqlite3 $SQLDB "UPDATE cfg_system SET value='1' WHERE param='spotactive'")
 	/usr/bin/mpc stop > /dev/null
-
-	# Allow time for ui update
 	sleep 1
 
-	$(sqlite3 $SQLDB "update cfg_system set value='1' where param='spotactive'")
+	# Local
+	if [[ $CDSP_VOLSYNC == "on" ]]; then
+		# Set 0dB CDSP volume
+		sed -i '0,/- -.*/s//- 0.0/' /var/lib/cdsp/statefile.yml
+	elif [[ $ALSAVOLUME != "none" ]]; then
+		# Set 0dB ALSA volume
+		/var/www/util/sysutil.sh set-alsavol "$AMIXNAME" $ALSAVOLUME_MAX
+	fi
 
-	if [[ $ALSAVOLUME != "none" ]]; then
-		/var/www/command/util.sh set-alsavol "$AMIXNAME" $ALSAVOLUME_MAX
+	# Multiroom receivers
+	if [[ $MULTIROOM_TX == "On" ]]; then
+		for IP_ADDR in $RX_ADDRESSES; do
+			RESULT=$(curl -G -S -s --data-urlencode "cmd=trx_control -set-alsavol" http://$IP_ADDR/command/)
+			if [[ $RESULT != "" ]]; then
+				RESULT=$(curl -G -S -s --data-urlencode "cmd=trx_control -set-alsavol" http://$IP_ADDR/command/)
+				if [[ $RESULT != "" ]]; then
+					echo $(date +%F" "%T) "Event: trx_control -set-alsavol failed: $IP_ADDR" >> $LOGFILE
+				fi
+			fi
+		done
 	fi
 fi
 
-if [[ $PLAYER_EVENT == "stop" ]]; then
-	$(sqlite3 $SQLDB "update cfg_system set value='0' where param='spotactive'")
+if [[ $PLAYER_EVENT == "session_disconnected" ]]; then
+	$(sqlite3 $SQLDB "UPDATE cfg_system SET value='0' WHERE param='spotactive'")
 
-	# Restore 0dB hardware volume when mpd configured as below
-	if [[ $MPDMIXER == "software" || $MPDMIXER == "disabled" ]]; then
-		if [[ $ALSAVOLUME != "none" ]]; then
-			/var/www/command/util.sh set-alsavol "$AMIXNAME" $ALSAVOLUME_MAX
-		fi
+	# Local
+	/var/www/util/vol.sh -restore
+
+	if [[ $CDSP_VOLSYNC == "on" ]]; then
+		# Restore CDSP volume
+		systemctl restart mpd2cdspvolume
 	fi
 
-	/var/www/vol.sh -restore
+	# Multiroom receivers
+	if [[ $MULTIROOM_TX == "On" ]]; then
+		for IP_ADDR in $RX_ADDRESSES; do
+			RESULT=$(curl -G -S -s --data-urlencode "cmd=set_volume -restore" http://$IP_ADDR/command/)
+			if [[ $RESULT != "" ]]; then
+				RESULT=$(curl -G -S -s --data-urlencode "cmd=set_volume -restore" http://$IP_ADDR/command/)
+				if [[ $RESULT != "" ]]; then
+					echo $(date +%F" "%T) "Event: set_volume -restore failed: $IP_ADDR" >> $LOGFILE
+				fi
+			fi
+		done
+	fi
 
 	if [[ $RSMAFTERSPOT == "Yes" ]]; then
 		/usr/bin/mpc play > /dev/null
 	fi
+fi
+
+if [[ $PLAYER_EVENT == "track_changed" ]]; then
+	COVER=$(echo $COVERS | cut -d " " -f 1)
+	#ARTIST=$(echo $ARTISTS | cut -d " " -f 1) should be \n delimited
+	#ARTISTS=$(echo "$ARTISTS" | tr '\n' ', ') should be \n delimited
+	METADATA=$NAME";"$ARTISTS";"$ALBUM";"$DURATION_MS";"$COVER
+	echo -e $METADATA > $SPOTMETA_FILE
+	/var/www/util/send-fecmd.php "update_spotmeta,$METADATA"
 fi

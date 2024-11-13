@@ -1,0 +1,45 @@
+#########################################
+# This file is managed by moOde
+#########################################
+
+# Device filters
+[cm4]
+otg_mode=1
+[pi4]
+hdmi_force_hotplug:0=1
+hdmi_force_hotplug:1=1
+hdmi_enable_4kp60=0
+[all]
+dtoverlay=vc4-kms-v3d
+max_framebuffers=2
+display_auto_detect=1
+disable_fw_kms_setup=1
+arm_64bit=1
+
+# General settings
+arm_boost=0
+disable_splash=1
+disable_overscan=1
+hdmi_drive=2
+hdmi_blanking=1
+hdmi_force_edid_audio=1
+hdmi_force_hotplug=1
+hdmi_group=0
+dtparam=i2c_arm=on
+dtparam=i2s=on
+dtparam=audio=on
+
+# Do not alter this section
+# Integrated adapters
+#dtoverlay=disable-bt
+#dtoverlay=disable-wifi
+# Audio overlays
+#dtoverlay=none
+#dtoverlay=force_eeprom_read=0
+# PCI Express
+#dtparam=pciex1
+#dtparam=pciex1_gen=3
+# Pi Touch
+#dtoverlay=rpi-backlight
+#dtoverlay=vc4-kms-dsi-7inch,invx,invy
+#dtoverlay=vc4-kms-dsi-ili9881-7inch,invx,invy

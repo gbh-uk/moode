@@ -42,11 +42,6 @@ require_once 'Zend/Media/Flac/MetadataBlock.php';
  * @version    $Id: Picture.php 241 2011-06-11 16:46:52Z svollbehr $
  */
 
-/**
- * 2019-04-12 TC moOde 5.0
- *
- */
-
 final class Zend_Media_Flac_MetadataBlock_Picture extends Zend_Media_Flac_MetadataBlock
 {
     /**
@@ -114,7 +109,7 @@ final class Zend_Media_Flac_MetadataBlock_Picture extends Zend_Media_Flac_Metada
         $this->_colorDepth = $this->_reader->readUInt32BE();
         $this->_numberOfColors = $this->_reader->readUInt32BE();
 		$this->_dataSize = $this->_reader->readUInt32BE(); // r44a
-		$this->_data = $hash_only === true ? md5($this->_reader->read(1024) + $this->_dataSize) : $this->_reader->read($this->_dataSize); // r44a, r44d add _dataSize to hash
+		$this->_data = $hash_only === true ? md5((string)$this->_reader->read(1024) . (string)$this->_dataSize) : $this->_reader->read($this->_dataSize); // r44a, r44d add _dataSize to hash
     }
 
     /**

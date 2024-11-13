@@ -1,46 +1,33 @@
 <?php
-/**
- * moOde audio player (C) 2014 Tim Curtis
- * http://moodeaudio.org
- *
- * Cover art extractor
- * Copyright (C) 2015 Andreas Goetz <cpuidle@gmx.de>
- *
- * This Program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 3, or (at your option)
- * any later version.
- *
- * This Program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- *
- * 2015-10-30: AG initial version
- * - script looks for flac, mp3 or m4a embedded art, Folder, folder, Cover, cover png/jpg/jpeg files, or any other image file.
- * - call via /coverart.php/some/local/file/name
- * - make sure client is configured to hand cover requests to /coverart.php or setup an nginx catch-all rule:
- * - try_files $uri $uri/ /coverart.php;
- *
- * 2019-04-12 TC moOde 5.0
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Copyright 2014 The moOde audio player project / Tim Curtis
+ * Copyright 2015 Andreas Goetz <cpuidle@gmx.de>
+*/
+
+/*
+ * - Embedded cover art: flac, mp3, m4a or dsf files
+ * - Cover image files: Folder/folder, Cover/cover gif/jpg/jpeg/png/tif/tiff files, or any other image file.
+ * - Call via /coverart.php/some/local/file/name
+ * - Make sure client is configured to hand cover requests to /coverart.php or setup an nginx catch-all rule:
+ * - Try_files $uri $uri/ /coverart.php;
  *
  */
 
-set_include_path('inc');
-require_once 'playerlib.php';
+require_once __DIR__ . '/inc/common.php';
+require_once __DIR__ . '/inc/music-library.php';
+require_once __DIR__ . '/inc/session.php';
+require_once __DIR__ . '/inc/sql.php';
 
 function outImage($mime, $data) {
-	//workerLog('coverart: outImage(): ' . $mime . ', ' . strlen($data) . ' bytes');
-	switch ($mime) {
+	switch (strtolower($mime)) {
 		case "image/gif":
 		case "image/jpg":
 		case "image/jpeg":
 		case "image/png":
 		case "image/tif":
 		case "image/tiff":
+		case "image/webp":
 			header("Content-Type: " . $mime);
 			echo $data;
 			exit(0);
@@ -52,63 +39,71 @@ function outImage($mime, $data) {
 }
 
 function getImage($path) {
-	//workerLog('coverart: getImage(): ' . $path);
 	if (!file_exists($path)) {
-		//workerLog('coverart: getImage(): ' . $path . ' (does not exist)');
 		return false;
 	}
 
 	$ext = pathinfo($path, PATHINFO_EXTENSION);
 
 	switch (strtolower($ext)) {
-		// image file -> redirect
+		// Image file -> serve from disc
 		case 'gif':
 		case 'jpg':
 		case 'jpeg':
 		case 'png':
 		case 'tif':
 		case 'tiff':
-			$path = '/' . $GLOBALS['musicroot_ext'] . substr($path, strlen(MPD_MUSICROOT)-1);
-			$path = str_replace('#', '%23', $path);
-			header('Location: ' . $path);
-			exit(0);
+		case 'webp':
+			$mimeType = 'image/'.$ext;
+			$fileSize = filesize($path);
+			$fh = fopen($path, 'rb');
+			$imageData = fread($fh, $fileSize);
+			fclose($fh);
+			outImage($mimeType, $imageData);
+			break;
+		// Embedded images
+		case 'dsf':
+			require_once __DIR__ . '/inc/Zend/Media/Dsd.php';
+			try {
+				$Dsd = new ZendEx_Media_Dsd($path, array('hash_only' => false));
 
-		// embedded images
+				if (isset($Dsd->id3v2()->apic)) {
+					outImage($Dsd->id3v2()->apic->mimeType, $Dsd->id3v2()->apic->imageData);
+				}
+			} catch (ZendEx_Media_Dsd_Exception $e) {
+				workerLog('coverart: Error: ' . $e->getMessage() . ': ' . $path);
+			}
+			break;
+
 		case 'mp3':
-			require_once 'Zend/Media/Id3v2.php';
+			require_once __DIR__ . '/inc/Zend/Media/Id3v2.php';
 			try {
 				$id3v2 = new Zend_Media_Id3v2($path, array('hash_only' => false));
 
 				if (isset($id3v2->apic)) {
-					//workerLog('coverart; mp3: id3v2: apic->imageData: length: ' . strlen($id3v2->apic->imageData));
 					outImage($id3v2->apic->mimeType, $id3v2->apic->imageData);
 				}
-			}
-			catch (Zend_Media_Id3_Exception $e) {
-				workerLog('coverart: mp3: ' . $path);
-				workerLog('coverart: mp3: Zend media exception: ' . $e->getMessage());
+			} catch (Zend_Media_Id3_Exception $e) {
+				workerLog('coverart: Error: ' . $e->getMessage() . ': ' . $path);
 			}
 			break;
 
 		case 'flac':
-			require_once 'Zend/Media/Flac.php';
+			require_once __DIR__ . '/inc/Zend/Media/Flac.php';
 			try {
 				$flac = new Zend_Media_Flac($path, $hash_only = false); // r44a
 
 				if ($flac->hasMetadataBlock(Zend_Media_Flac::PICTURE)) {
 					$picture = $flac->getPicture();
-					//workerLog('coverart; flac: getData(): length: ' . strlen($picture->getData()));
 					outImage($picture->getMimeType(), $picture->getData());
 				}
-			}
-			catch (Zend_Media_Flac_Exception $e) {
-				workerLog('coverart: flac: ' . $path);
-				workerLog('coverart: flac: Zend media exception: ' . $e->getMessage());
+			} catch (Zend_Media_Flac_Exception $e) {
+				workerLog('coverart: Error: ' . $e->getMessage() . ': ' . $path);
 			}
 			break;
 
         case 'm4a':
-            require_once 'Zend/Media/Iso14496.php';
+            require_once __DIR__ . '/inc/Zend/Media/Iso14496.php';
             try {
                 $iso14496 = new Zend_Media_Iso14496($path, array('hash_only' => false)); // r44a
                 $picture = $iso14496->moov->udta->meta->ilst->covr;
@@ -122,10 +117,8 @@ function getImage($path) {
                 if ($mime) {
                     outImage($mime, $picture->getValue());
                 }
-            }
-            catch (Zend_Media_Iso14496_Exception $e) {
-				workerLog('coverart: m4a: ' . $path);
-				workerLog('coverart: m4a: Zend media exception: ' . $e->getMessage());
+            } catch (Zend_Media_Iso14496_Exception $e) {
+				workerLog('coverart: Error: ' . $e->getMessage() . ': ' . $path);
             }
             break;
 	}
@@ -134,21 +127,21 @@ function getImage($path) {
 }
 
 function parseFolder($path) {
-	//workerLog('coverart: parseFolder(): ' . $path);
-	// default cover files
+	// Default cover files
 	$covers = array(
 		'Cover.jpg', 'cover.jpg', 'Cover.jpeg', 'cover.jpeg', 'Cover.png', 'cover.png', 'Cover.tif', 'cover.tif', 'Cover.tiff', 'cover.tiff',
 		'Folder.jpg', 'folder.jpg', 'Folder.jpeg', 'folder.jpeg', 'Folder.png', 'folder.png', 'Folder.tif', 'folder.tif', 'Folder.tiff', 'folder.tiff'
 	);
+
 	foreach ($covers as $file) {
 		getImage($path . $file);
 	}
-	// all other image files
+
+	// All other image files
 	$extensions = array('jpg', 'jpeg', 'png', 'tif', 'tiff');
 	$path = str_replace('[', '\[', $path);
 	$path = str_replace(']', '\]', $path);
 	foreach (glob($path . '*') as $file) {
-		//workerLog('coverart: parseFolder(): glob: ' . $file);
 		if (is_file($file) && in_array(strtolower(pathinfo($file, PATHINFO_EXTENSION)), $extensions)) {
 			getImage($file);
 		}
@@ -168,13 +161,9 @@ function parseFolder($path) {
  * MAIN
  */
 
-session_id(playerSession('getsessionid'));
-$return = session_start();
-$search_pri = $_SESSION['library_covsearchpri'];
-$musicroot_ext = $_SESSION['musicroot_ext']; // $GLOBALS['musicroot_ext']
-session_write_close();
-//workerLog('coverart: $search_pri=' . $search_pri);
-//workerLog('coverart: $musicroot_ext=' . $musicroot_ext);
+session_id(phpSession('get_sessionid'));
+phpSession('open_ro');
+$searchPriority = $_SESSION['library_covsearchpri'];
 
 // Get options- cmd line or GET
 $options = getopt('p:', array('path:'));
@@ -183,15 +172,18 @@ $path = isset($options['p']) ? $options['p'] : (isset($options['path']) ? $optio
 if (null === $path) {
 	$self = $_SERVER['SCRIPT_NAME'];
 	$path = urldecode($_SERVER['REQUEST_URI']);
-	// strip script name if called as /coverart.php/path/to/file
+
 	if (substr($path, 0, strlen($self)) === $self) {
-		$path = substr($path, strlen($self)+1);
+		// Strip script name if called as /coverart.php/path/to/file
+		$path = substr($path, strlen($self) + 1);
 	}
 	$path = MPD_MUSICROOT . $path;
 }
 
+$path = ensureAudioFile($path);
+
 // file: embedded cover
-if ($search_pri == 'Embedded cover') { // embedded first
+if ($searchPriority == 'Embedded cover') { // Embedded first
 	getImage($path);
 }
 
@@ -199,17 +191,15 @@ if ($search_pri == 'Embedded cover') { // embedded first
 if (is_dir($path)) {
 	if (substr($path, -1) !== '/') {$path .= '/';}
 	parseFolder($path);
-}
-else {
+} else {
 	// file: cover image file in containing dir
 	$dirpath = pathinfo($path, PATHINFO_DIRNAME) . '/';
 	parseFolder($dirpath);
 
-	if ($search_pri == 'Cover image file') { // embedded last
+	if ($searchPriority == 'Cover image file') { // Embedded last
 		getImage($path);
 	}
 }
 
-// nothing found: default cover
-//workerLog('coverart: default cover');
-header('Location: /images/default-cover-v6.svg');
+// Nothing found: default cover
+header('Location: /' . DEFAULT_ALBUM_COVER);

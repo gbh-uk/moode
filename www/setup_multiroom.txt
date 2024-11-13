@@ -1,0 +1,190 @@
+################################################################################
+#
+#  Setup Guide for moOde Multiroom Audio
+#
+#  These instructions are for an initial configuration of Multiroom Audio. For
+#  additional information view Quick Help and the (i) information buttons.
+#
+#  Version: 1.5 2024-06-27
+#
+#  (C) Tim Curtis 2021 http://moodeaudio.org
+#
+################################################################################
+
+PREFACE
+
+This release of Multiroom Audio is designed for listening in a casual or
+background setting. There is no support for audiophile features for example
+uncompressed PCM format, rates greater than 48K, DSP or clock sync between
+Sender and Receivers. These features may however appear in future releases.
+
+OVERVIEW
+
+A multiroom audio system consists of a Sender and one or more Receivers. The
+Sender should be a dedicated Pi not connected to speakers or headphones. It can
+also be configured as a NAS to serve audio files from locally attached storage.
+
+The Sender and Receivers should be a Pi-3A+ or higher and use the integrated Pi
+WiFi adapter for consistent WiFi performance.
+
+BLOCK DIAGRAM
+
+        +---------+
+        | Router  |----------------------------+
+        +---------+                            |
+             |                                 |
+             | Ethernet                        |
+             |                                 |
+         +-------+                             |
+         |       | MPD                         | Ethernet and/or WiFi 5GHz
+         | Sendr | Spotify, AirPlay, Bluetooth |
+         |       | NAS (SMB or NFS)            |
+         +-------+                             |
+                                               |
+                                               |
+                                               |
+                         +---------------------+---------------------+
+                         |                     |                     |
+                         |                     |                     |
+                         |                     |                     |
+                     +-------+             +-------+             +-------+
+                     |       |             |       |             |       |
+                     | Rcvr1 |             | Rcvr2 |             | Rcvr3 |
+                     |       |             |       |             |       |
+                     +-------+             +-------+             +-------+
+                         |                     |                     |
+                         |                     | Speakers            |
+                       +---+                 +---+                 +---+
+                       | . |                 | . |                 | . |
+                       | O |                 | O |                 | O |
+                       +---+                 +---+                 +---+
+
+RECEIVER CONFIGURATION
+
+Receivers should be configured first. The Receiver daemon is separate from MPD
+and the other Audio Renderers and thus the Receiver configuration should be
+dedicated although it's not absolutely required. A Receiver can have Bluetooth,
+AirPlay and Spotify Connect renderers running in the background but there is no
+coordination between them and the Receiver player. Initiating a Bluetooth,
+Spotify Connect or AirPlay connection while the Receiver player is on will
+result in audio output conflicts and errors.
+
+A) Audio Configuration (Menu, Configure, Audio)
+
+1. In the Audio Output section
+   a. Configure settings appropriate for the audio device being used
+   b. Set "Volume type" to "Hardware" to control Receiver volume via the Sender
+      CAUTION: Software or Fixed (0dB) can also be used but volume output will
+      be 0dB (100%) regardless of Sender volume setting
+2. In the ALSA options section
+   a. Select an ALSA output mode being mindful of the Help text
+   b. Set ALSA Loopback to "OFF"
+3. In the MPD Options section EDIT MPD settings set SoX Resampling to "No"
+4. In the Equalizers section set the following DSP's to "Off"
+   a. Crossfeed
+   b. Polarity inversion
+   c. Graphic EQ
+   d. Parametric EQ
+   e. CamillaDSP
+
+B) Renderer Configuration (Menu, Configure, Renderers)
+
+1. Set all Audio Renderers to "Off"
+2. Set DLNA server to "Off"
+
+C) Multiroom Configuration (Menu, Configure, Multiroom)
+
+1. Turn the Receiver daemon on
+2. Master volume opt-in should default to "yes". This allows Receiver volume to
+   be controlled by the volume knob in Playback or Playbar view of the Sender.
+
+SENDER CONFIGURATION
+
+The Sender should be a dedicated player not connected to speakers or headphones.
+It functions solely to send its audio output to one or more Receivers. It can
+also be conveniently used as a File Server (NAS) by turning on SMB, NFS or DLNA
+file sharing in System Config.
+
+Multiple Senders can be running on the network, each sending audio to their
+designated Receivers as long as each Sender and corresponding Receivers use
+their own unique multicast address. This configuration enables sending different
+audio programs to designated rooms.
+
+A) Audio Configuration (Menu, Configure, Audio)
+
+1. In the ALSA Options section turn ALSA Loopback on
+2. In the MPD Options section EDIT MPD settings set SoX Resampling to "No"
+3. In the Equalizers section set the following DSP's to "Off"
+   a. Crossfeed
+   b. Polarity inversion
+   c. Graphic EQ
+   d. Parametric EQ
+   e. CamillaDSP
+
+B) Renderer Configuration (Menu, Configure, Renderers)
+
+1. Turn the following Audio Renderers off
+   a. Squeezelite
+   b. RoonBridge
+2. Optionally turn on Bluetooth, AirPlay and/or Spotify Connect renderers
+3. Turn the DLNA server off
+
+B) Sender Configuration (Menu, Configure, Multiroom)
+
+1. DISCOVER Receivers. This is necessary to generate the list of Receiver hosts
+   and their IP addresses. This must be done initially and whenever hosts are
+   added or removed from the configuration.
+2. Turn the Sender daemon on
+3. Optionally set Initial volume for the Receivers. This action simply sets
+   each Receiver's volume to an initial level for convenience.
+4. In Playback view the Receivers icon will appear at the top middle. Click this
+   icon to open the Receivers panel which lists each Receiver, its on/off state,
+   volume and mute state. Receiver volume can be adjusted via the slider
+   followed by clicking the volume button. Mute state can be toggled by
+   clicking the mute button.
+
+NETWORKING AND AUDIO FORMAT
+
+A) Networking
+
+The performance of the system depends on having low latency, high throughput
+networking and hosts. For hosts connected via WiFi it's important that they all
+use the same WiFi adapter, preferably the Pi integrated adapter, to ensure
+consistent WiFi performance.
+
+1. Discovery of Receivers relies on Multicast DNS (mDNS).
+2. The audio distribution protocol uses IP Multicast addressing and a default
+   address of 239.0.0.1, port 1350. Most residential Routers support Multicast
+   by performing Multicast to Unicast (M-to-U) conversion but in some cases both
+   IP Multicast and IGMP Snooping need to be explicitly enabled in the Router.
+
+B) Audio format
+
+1. Audio is converted to 16 bit 48 kHz PCM format and encoded using the Opus
+   CODEC. Resampling if needed is automatically handled by ALSA using the Speex
+   converter. For playback via MPD the SoX resampler can be used instead. Set
+   Bit depth to "Any" and Sample rate to 48. This may provide higher quality
+   resampling than ALSA/Speex.
+2. Encoded Opus frames are transmitted over the network using RTP over UDP
+
+BLUETOOTH, SPOTIFY CONNECT AND AIRPLAY
+
+Playing Bluetooth, Spotify or AirPlay through the Sender sets the Receiver
+volume to a level specified by the "ALSA Max volume" setting in Multiroom
+Config. Overall volume is controlled by Bluetooth, Spotify or AirPlay client
+applications. After the client disconnects, Receiver volume is restored to the
+value specified by the Sender.
+
+USAGE NOTES
+
+1. The 2.4 GHz WiFi band is typically crowded and prone to interference and thus
+   should be avoided. Use the 5GHz band for best results.
+2. ARM6 single-core Pi's including Pi-1B and Pi-Zero have not been tested as
+   either Sender or Receiver and so YMMV.
+3. The SQL table cfg_multiroom contains the configuration parameters for the
+   feature. Parameters not exposed in the Multiroom Config screen can be edited
+   in this table for development and testing purposes.
+
+################################################################################
+#  Post questions regarding this guide to http://moodeaudio.org/forum
+################################################################################

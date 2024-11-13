@@ -1,30 +1,12 @@
 <?php
-/**
- * moOde audio player (C) 2014 Tim Curtis
- * http://moodeaudio.org
- *
- * Timezone select table
- * Copyright (C) 2015 Andreas Goetz <cpuidle@gmx.de>
- *
- * This Program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 3, or (at your option)
- * any later version.
- *
- * This Program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- *
- * 2019-04-12 TC moOde 5.0
- *
- */
- 
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Copyright 2014 The moOde audio player project / Tim Curtis
+ * Copyright 2015 Andreas Goetz <cpuidle@gmx.de>
+*/
+
 function buildTimezoneSelect($selected) {
-	$timezone_list = array(
+	$timezoneList = array(
 		"Africa/Abidjan",
 		"Africa/Accra",
 		"Africa/Addis_Ababa",
@@ -551,11 +533,11 @@ function buildTimezoneSelect($selected) {
 		"Zulu"
 	);
 
-	$res = '';
-	foreach ($timezone_list as $tz) {
+	$data = '';
+	foreach ($timezoneList as $tz) {
 		$sel = ($selected == $tz) ? ' selected' : '';
-		$res .= sprintf("<option value='%s'%s>%s</option>\n", $tz, $sel, $tz);
+		$data .= sprintf("<option value='%s'%s>%s</option>\n", $tz, $sel, $tz);
 	}
 
-	return $res;
+	return $data;
 }

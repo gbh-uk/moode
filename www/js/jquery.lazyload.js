@@ -11,13 +11,10 @@
  *
  * Version:  1.9.7
  *
- * 2019-11-24 TC moOde 6.4.0
- *
  */
 
 (function($, window, document, undefined) {
     var $window = $(window);
-
     $.fn.lazyload = function(options) {
         var elements = this;
         var $container;
@@ -29,24 +26,23 @@
             container       : window,
             data_attribute  : "original",
             data_srcset     : "srcset",
-            skip_invisible  : true,
+            skip_invisible  : false,
             appear          : null,
             load            : null,
-			// Gray square
-			placeholder     : "data:image/gif;base64,R0lGODdhAQABAPAAAMPDwwAAACwAAAAAAQABAAACAkQBADs="
+			placeholder     : null
         };
 
         function update() {
             var counter = 0;
-
             elements.each(function() {
+				//console.log('li');
                 var $this = $(this);
                 if (settings.skip_invisible && !$this.is(":visible")) {
+					//console.log('skipped');
                     return;
                 }
                 if ($.abovethetop(this, settings) ||
                     $.leftofbegin(this, settings)) {
-                        /* Nothing. */
                 } else if (!$.belowthefold(this, settings) &&
                     !$.rightoffold(this, settings)) {
                         $this.trigger("appear");
@@ -78,14 +74,13 @@
         /* Cache container as jQuery as object. */
         $container = (settings.container === undefined ||
                       settings.container === window) ? $window : $(settings.container);
-
         /* Fire one scroll event per scroll. Not one scroll event per image. */
         if (0 === settings.event.indexOf("scroll")) {
             $container.off(settings.event).on(settings.event, function() {
                 return update();
             });
         }
-
+		//console.log($container);
         this.each(function() {
             var self = this;
             var $self = $(self);
@@ -108,19 +103,19 @@
                     }
                     $("<img />")
 						.one("error", function() { // r43k
-							$self.attr("src", "images/default-cover-v6.svg");
+							$self.attr("src", DEFAULT_ALBUM_COVER);
 						})
                         .one("load", function() {
                             var original = $self.attr("data-" + settings.data_attribute);
-                            var srcset = $self.attr("data-" + settings.data_srcset);
+                            //var srcset = $self.attr("data-" + settings.data_srcset);
 
                             if (original != $self.attr("src")) {
                                 $self.hide();
                                 if ($self.is("img")) {
                                     $self.attr("src", original);
-                                    if (srcset != null) {
+                                    /*if (srcset != null) {
                                         $self.attr("srcset", srcset);
-                                    }
+                                    }*/
                                 }
 								/*if ($self.is("video")) { // not needed
                                     $self.attr("poster", original);

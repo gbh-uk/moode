@@ -1,43 +1,24 @@
 /*!
- * moOde audio player (C) 2014 Tim Curtis
- * http://moodeaudio.org
- *
- * tsunamp player ui (C) 2013 Andrea Coiutti & Simone De Gregori
- * http://www.tsunamp.com
- *
- * This Program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 3, or (at your option)
- * any later version.
- *
- * This Program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- *
- * 2020-04-24 TC moOde 6.5.0
- *
- */
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Copyright 2014 The moOde audio player project / Tim Curtis
+ * Copyright 2013 The tsunamp player ui / Andrea Coiutti & Simone De Gregori
+*/
 
 $(document).on('click', 'a', function(event) {
-		//debugLog('links.js: this.id=', this.id);
-		//debugLog('links.js: this.className=', this.className);
-		//debugLog('links.js: this.attributes=', this.attributes);
-		//debugLog('links.js: $(this).attr(tabindex)', $(this).attr('tabindex'));
+		//debugLog('links.js: this.id: ' + this.id);
+		//debugLog('links.js: this.className(s): ' + this.className);
+		//debugLog('links.js: includes target-blank-link: ' + this.className.includes('target-blank-link'));
+		//debugLog('links.js: this.attributes: ' + this.attributes);
+		//debugLog('links.js: $(this).attr(tabindex): ' + $(this).attr('tabindex'));
 		//return;
 
-	    // don't modify link if matches condition below
-		if (this.id == 'menu-settings' ||
-			this.id == 'coverart-link' ||
-			this.id == 'dlnasvc-link' ||
-			this.className == 'moode-about-link' ||
-			this.className == 'playhistory-link' ||
-			// input dropdowns on config pages
-			(this.className == 'active' && $(this).attr('tabindex') == 0)) {
-
+	    // Don't modify link if matches condition below
+		if (
+			// Specific links
+			this.className.includes('target-blank-link') ||
+			// Input dropdowns on config pages
+			(this.className == 'active' && $(this).attr('tabindex') == 0)
+		) {
 			//debugLog('links.js: link not modified, match found in exclusion list');
 			return;
 		}
@@ -56,7 +37,7 @@ $(document).on('click', 'a', function(event) {
 	    }
         else {
 			//debugLog('links.js: link not modified, not in exclusion list but has class external');
-			// place holder
+			// Placeholder
 	    }
     }
 );
